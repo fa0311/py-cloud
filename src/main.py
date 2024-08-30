@@ -5,10 +5,10 @@ import uvicorn
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
-from depends.logging import LoggingDepends
-from depends.sql import SQLDepends
-from models.environ import Environ
 from src.app.upload import router as upload
+from src.depends.logging import LoggingDepends
+from src.depends.sql import SQLDepends
+from src.models.environ import Environ
 
 
 @asynccontextmanager
@@ -37,9 +37,9 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=8000,
-        log_config={
-            "version": 1,
-            "disable_existing_loggers": False,
-        },
+        # log_config={
+        #     "version": 1,
+        #     "disable_existing_loggers": False,
+        # },
         reload=True,
     )
