@@ -2,12 +2,14 @@ import pathlib
 import shutil
 from logging import Logger
 
-import ffmpeg
 from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.orm import Session
 
 from src.depends.logging import LoggingDepends
 from src.depends.sql import SQLDepends
+from src.models.file import FileModel, FileORM
+from src.models.slow_task import SlowTaskModel, SlowTaskORM
+from src.util.ffmpeg import FFmpegWrapper
 
 router = APIRouter()
 
@@ -29,57 +31,6 @@ class FileResolver:
         return temp
 
 
-class FFmpegWrapper:
-    def __init__(self, input_file: pathlib.Path):
-        self.input_file = input_file
-        self.ffprobe = ffmpeg.probe(input_file)
-        self.stream = self.get_stream()
-
-    def is_video(self) -> bool:
-        return float(self.ffprobe["format"].get("duration", 0)) > 0
-
-    def get_stream(self):
-        for stream in self.ffprobe["streams"]:
-            if stream["codec_type"] == "video":
-                return stream
-        raise ValueError("No video stream found")
-
-    def check(self, width: int, bitrate: int) -> bool:
-        if self.stream["width"] < width:
-            return True
-        if int(self.stream["bit_rate"]) < bitrate * 1024:
-            return True
-        return False
-
-    def hls(
-        self,
-        output_dir: pathlib.Path,
-        prefix: str,
-        width: int,
-        bitrate: int,
-    ):
-        param = {
-            # "f": "hls",
-            # "hls_time": 10,
-            # "hls_segment_filename": output_dir.joinpath(f"hls_{prefix}_%06d.ts"),
-            # "hls_playlist_type": "vod",
-            # "c:v": "libx264",
-            "c:v": "h264_nvenc",
-            "c:a": "copy",
-            "vf": f"scale={width}:-1",
-            "b:v": f"{bitrate}k",
-        }
-
-        stream = ffmpeg.input(self.input_file.as_posix())
-        stream = ffmpeg.output(
-            stream,
-            # output_dir.joinpath(f"hls_{prefix}.m3u8").as_posix(),
-            output_dir.joinpath(f"hls_{prefix}.mp4").as_posix(),
-            **param,
-        )
-        ffmpeg.run(stream, overwrite_output=True)
-
-
 @router.post(
     "/upload/{file_path:path}",
     operation_id="post_upload",
@@ -96,33 +47,54 @@ def post_upload(
     with output_file.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    video = FFmpegWrapper(output_file)
+    try:
+        ffmpeg = FFmpegWrapper.from_file(output_file)
+        file_model = FileModel(
+            filename=output_file,
+            size=output_file.stat().st_size,
+            directory=False,
+            data={
+                "ffprobe": ffmpeg.ffprobe,
+            },
+        )
+        session.add(FileORM.from_model(file_model))
 
-    temp_dir = FileResolver.get_temp(file_path)
+        if ffmpeg.is_video():
+            task_model = SlowTaskModel(name="video_convert", file_id=file_model.id)
+            session.add(SlowTaskORM.from_model(task_model))
 
-    if video.is_video():
-        temp_dir = FileResolver.get_temp(file_path)
+        session.commit()
 
-        if not video.check(640, 1000):
-            video.hls(
-                temp_dir,
-                prefix="video_low",
-                width=640,
-                bitrate=250,
-            )
+    except Exception:
+        output_file.unlink()
 
-        if not video.check(1280, 2000):
-            video.hls(
-                temp_dir,
-                prefix="video_mid",
-                width=1280,
-                bitrate=500,
-            )
+    # video = FFmpegWrapper(output_file)
 
-        if not video.check(1920, 4000):
-            video.hls(
-                temp_dir,
-                prefix="video_high",
-                width=1920,
-                bitrate=1000,
-            )
+    # temp_dir = FileResolver.get_temp(file_path)
+
+    # if video.is_video():
+    #     temp_dir = FileResolver.get_temp(file_path)
+
+    #     if not video.check(640, 1000):
+    #         video.hls(
+    #             temp_dir,
+    #             prefix="video_low",
+    #             width=640,
+    #             bitrate=250,
+    #         )
+
+    #     if not video.check(1280, 2000):
+    #         video.hls(
+    #             temp_dir,
+    #             prefix="video_mid",
+    #             width=1280,
+    #             bitrate=500,
+    #         )
+
+    #     if not video.check(1920, 4000):
+    #         video.hls(
+    #             temp_dir,
+    #             prefix="video_high",
+    #             width=1920,
+    #             bitrate=1000,
+    #         )

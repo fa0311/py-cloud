@@ -1,5 +1,3 @@
-import json
-
 from pydantic import BaseModel, ConfigDict
 
 
@@ -10,9 +8,7 @@ class ORMMixin:
             mode="json",
             exclude_none=True,
         )
-
-        args = {k: json.dumps(v) if isinstance(v, dict) else v for k, v in data.items()}
-        return cls(**args)
+        return cls(**data)
 
 
 class ModelBase(BaseModel):
@@ -21,8 +17,4 @@ class ModelBase(BaseModel):
     @classmethod
     def model_validate_orm(cls, orm):
         data = orm[0].__dict__
-        args = {
-            k: json.loads(data[k]) if v.annotation is dict else data[k]
-            for k, v in cls.model_fields.items()
-        }
-        return cls.model_validate(args, strict=False)
+        return cls.model_validate(data, strict=False)

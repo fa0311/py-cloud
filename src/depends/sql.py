@@ -25,6 +25,14 @@ class SQLDepends:
         SQLBase.metadata.create_all(bind=SQLDepends.state)
 
     @staticmethod
+    def test():
+        env = Environ()
+        name = f"{env.DB_URL}_test"
+        SQLDepends.state = create_engine(name, echo=env.SQL_ECHO)
+        SQLBase.metadata.drop_all(bind=SQLDepends.state)
+        SQLBase.metadata.create_all(bind=SQLDepends.state)
+
+    @staticmethod
     def stop():
         SQLDepends.state.dispose()
 
