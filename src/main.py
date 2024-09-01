@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
 from src.app.upload import router as upload
+from src.depends.job import Job
 from src.depends.logging import LoggingDepends
 from src.depends.sql import SQLDepends
 from src.models.environ import Environ
@@ -15,7 +16,9 @@ from src.models.environ import Environ
 async def lifespan(app: FastAPI):
     LoggingDepends.init(path=Path("logs/main.log"))
     SQLDepends.start()
+    Job.start()
     yield
+    Job.stop()
     SQLDepends.stop()
 
 

@@ -4,7 +4,7 @@ from logging import Logger
 
 import ffmpeg
 from fastapi import APIRouter, Depends, File, UploadFile
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from src.depends.logging import LoggingDepends
 from src.depends.sql import SQLDepends

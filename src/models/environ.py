@@ -40,3 +40,8 @@ class Environ(BaseSettings):
         default=False,
         description="SQLのログを出力するか",
     )
+
+    JOB_ENABLE: bool = Field(
+        default=True,
+        description="ジョブを有効にするか",
+    )
