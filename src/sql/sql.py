@@ -16,5 +16,5 @@ class ModelBase(BaseModel):
 
     @classmethod
     def model_validate_orm(cls, orm):
-        data = orm[0].__dict__
+        data = orm.__dict__
         return cls.model_validate(data, strict=False)

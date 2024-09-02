@@ -1,0 +1,1 @@
+yt-dlp https://www.youtube.com/watch?v=dQw4w9WgXcQ --embed-thumbnail --embed-metadata --embed-subs --embed-chapters -o "assets/%(title)s.%(ext)s"

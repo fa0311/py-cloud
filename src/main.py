@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
 from src.app.upload import router as upload
+from src.app.webdav import router as webdav
 from src.depends.job import Job
 from src.depends.logging import LoggingDepends
 from src.depends.sql import SQLDepends
@@ -33,6 +34,7 @@ app.add_middleware(
 )
 
 app.include_router(upload)
+app.include_router(webdav)
 
 
 if __name__ == "__main__":
