@@ -1,6 +1,7 @@
+import json
 import pathlib
 
-import ffmpeg
+from ffmpeg.asyncio import FFmpeg
 
 
 class FFmpegWrapper:
@@ -9,8 +10,17 @@ class FFmpegWrapper:
         self.ffprobe = ffprobe
 
     @classmethod
-    def from_file(cls, input_file: pathlib.Path):
-        ffprobe = ffmpeg.probe(input_file)
+    async def from_file(cls, input_file: pathlib.Path):
+        stream = (
+            FFmpeg(executable="ffprobe")
+            .input(input_file.as_posix())
+            .option("show_format")
+            .option("show_streams")
+            .option("of", "json")
+        )
+        data = await stream.execute()
+        ffprobe = json.loads(data)
+
         return cls(input_file, ffprobe)
 
     def is_video(self) -> bool:
@@ -45,52 +55,60 @@ class FFmpegVideo(FFmpegWrapper):
 
         return False
 
-    def thumbnail(self, output_dir: pathlib.Path, prefix: str):
+    async def thumbnail(self, output_dir: pathlib.Path, prefix: str):
         thumbnail = self.get_thumbnail_stream()
         if thumbnail is None:
-            stream = ffmpeg.input(self.input_file.as_posix())
-            stream = ffmpeg.output(
-                stream,
-                output_dir.joinpath(f"thumbnail_{prefix}.png").as_posix(),
-                **{
-                    "ss": 1,
-                    "vf": "scale=320:320:force_original_aspect_ratio=decrease",
-                    "vframes": 1,
-                },
+            stream = (
+                FFmpeg()
+                .input(self.input_file.as_posix())
+                .output(
+                    output_dir.joinpath(f"thumbnail_{prefix}.png").as_posix(),
+                    options={
+                        "ss": 1,
+                        "vf": "scale=320:320:force_original_aspect_ratio=decrease",
+                        "frames:v": 1,
+                        "y": None,
+                    },
+                )
             )
-            ffmpeg.run(stream, overwrite_output=True)
+            await stream.execute()
         else:
-            stream = ffmpeg.input(self.input_file.as_posix())
-
-            stream = ffmpeg.output(
-                stream["v:1"],
-                output_dir.joinpath(f"thumbnail_{prefix}.png").as_posix(),
-                **{
-                    "c": "copy",
-                },
+            stream = (
+                FFmpeg()
+                .input(self.input_file.as_posix())
+                .output(
+                    output_dir.joinpath(f"thumbnail_{prefix}.png").as_posix(),
+                    options={
+                        "map": "v:1",
+                        "c": "copy",
+                        "frames:v": 1,
+                        "y": None,
+                    },
+                )
             )
-            print(ffmpeg.get_args(stream))
-            ffmpeg.run(stream, overwrite_output=True)
+            print("ffmpeg" + " ".join([f'"{x}"' for x in stream.arguments[1:]]))
+            await stream.execute()
 
-    def down_scale(
+    async def down_scale(
         self,
         output_dir: pathlib.Path,
         prefix: str,
         width: int,
         bitrate: int,
     ):
-        param = {
-            "c:v": "h264_nvenc",
-            "c:a": "copy",
-            "vf": f"scale={width}:-1",
-            "b:v": f"{bitrate}k",
-        }
-
-        stream = ffmpeg.input(self.input_file.as_posix())
-        stream = ffmpeg.output(
-            stream,
-            output_dir.joinpath(f"hls_{prefix}.mp4").as_posix(),
-            **param,
+        stream = (
+            FFmpeg()
+            .input(self.input_file.as_posix())
+            .output(
+                output_dir.joinpath(f"hls_{prefix}.mp4").as_posix(),
+                options={
+                    "c:v": "h264_nvenc",
+                    "c:a": "copy",
+                    "vf": f"scale={width}:-1",
+                    "b:v": f"{bitrate}k",
+                    "y": None,
+                },
+            )
         )
-        print(ffmpeg.get_args(stream))
-        ffmpeg.run(stream, overwrite_output=True)
+        print("ffmpeg " + " ".join([f'"{x}"' for x in stream.arguments[1:]]))
+        await stream.execute()

@@ -16,26 +16,28 @@ from src.models.environ import Environ
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     LoggingDepends.init(path=Path("logs/main.log"))
-    SQLDepends.start()
-    Job.start()
+    await SQLDepends.start()
+    await Job.start()
     yield
-    Job.stop()
-    SQLDepends.stop()
+    await Job.stop()
+    await SQLDepends.stop()
+
+
+def init_fastapi(app: FastAPI):
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(webdav)
+    app.include_router(upload)
 
 
 env = Environ()
 app = FastAPI(lifespan=lifespan, root_path=env.ROOT_PATH)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(upload)
-app.include_router(webdav)
-
+init_fastapi(app)
 
 if __name__ == "__main__":
     uvicorn.run(

@@ -5,14 +5,24 @@ pydantic
 pydantic_settings
 
 sqlalchemy
-mysql-connector-python
+# mysql-connector-python
+aiomysql
 
 APScheduler
-retry
+# retry
 pillow
-ffmpeg-python
+# ffmpeg-python
 coloredlogs
 
 pytest
-requests
+# requests
 httpx
+
+
+tenacity
+aiofiles
+types-aiofiles
+python-ffmpeg
+pytest-asyncio
+
+trio

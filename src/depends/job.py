@@ -1,3 +1,4 @@
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from src.job.slow_task import slow_task
@@ -8,18 +9,18 @@ class Job:
     state: BackgroundScheduler
 
     @staticmethod
-    def start():
+    async def start():
         env = Environ()
-        Job.state = BackgroundScheduler()
+        Job.state = AsyncIOScheduler()
         Job.state.add_job(slow_task, "interval", seconds=10)
 
         if env.JOB_ENABLE:
             Job.state.start()
 
     @staticmethod
-    def stop():
-        Job.state.shutdown()
+    async def stop():
+        await Job.state.shutdown()
 
     @staticmethod
-    def depends():
+    async def depends():
         yield Job.state

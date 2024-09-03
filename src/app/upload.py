@@ -1,8 +1,11 @@
-import shutil
 from logging import Logger
 
+import aiofiles
+import aiofiles.os as os
 from fastapi import APIRouter, Depends, File, UploadFile
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+)
 
 from src.depends.logging import LoggingDepends
 from src.depends.sql import SQLDepends
@@ -20,18 +23,20 @@ router = APIRouter()
     tags=["upload"],
     description="upload",
 )
-def post_upload(
+async def post_upload(
     file_path: str,
     file: UploadFile = File(),
     logger: Logger = Depends(LoggingDepends.depends),
-    session: Session = Depends(SQLDepends.depends),
+    session: AsyncSession = Depends(SQLDepends.depends),
 ):
-    output_file = FileResolver.get_file_str(file_path)
-    with output_file.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    output_file = await FileResolver.get_file_str(file_path)
+
+    async with aiofiles.open(output_file, "wb") as buffer:
+        content = await file.read()
+        await buffer.write(content)
 
     try:
-        ffmpeg = FFmpegWrapper.from_file(output_file)
+        ffmpeg = await FFmpegWrapper.from_file(output_file)
         file_model = FileModel(
             filename=output_file,
             size=output_file.stat().st_size,
@@ -46,7 +51,7 @@ def post_upload(
             task_model = SlowTaskModel(type="video_convert", file_id=file_model.id)
             session.add(SlowTaskORM.from_model(task_model))
 
-        session.commit()
+        await session.commit()
 
     except Exception:
-        output_file.unlink()
+        await os.unlink(output_file)

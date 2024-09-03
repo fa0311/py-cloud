@@ -1,11 +1,13 @@
-from retry import retry
-from sqlalchemy import create_engine
-from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DatabaseError
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    create_async_engine,
+)
 from sqlalchemy.orm import (
     DeclarativeBase,
-    Session,
 )
+from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
 from src.models.environ import Environ
 
@@ -15,28 +17,30 @@ class SQLBase(DeclarativeBase):
 
 
 class SQLDepends:
-    state: Engine
+    state: AsyncEngine
 
     @staticmethod
-    @retry(DatabaseError, tries=3, delay=2)
-    def start():
+    @retry(retry=retry_if_exception_type(DatabaseError), stop=stop_after_attempt(3))
+    async def start():
         env = Environ()
-        SQLDepends.state = create_engine(env.DB_URL, echo=env.SQL_ECHO)
-        SQLBase.metadata.create_all(bind=SQLDepends.state)
+        SQLDepends.state = create_async_engine(env.DB_URL, echo=env.SQL_ECHO)
+        async with SQLDepends.state.begin() as conn:
+            await conn.run_sync(SQLBase.metadata.create_all)
 
     @staticmethod
-    def test():
+    async def test():
         env = Environ()
         name = f"{env.DB_URL}_test"
-        SQLDepends.state = create_engine(name, echo=env.SQL_ECHO)
-        SQLBase.metadata.drop_all(bind=SQLDepends.state)
-        SQLBase.metadata.create_all(bind=SQLDepends.state)
+        SQLDepends.state = create_async_engine(name, echo=env.SQL_ECHO)
+        async with SQLDepends.state.begin() as conn:
+            await conn.run_sync(SQLBase.metadata.drop_all)
+            await conn.run_sync(SQLBase.metadata.create_all)
 
     @staticmethod
-    def stop():
-        SQLDepends.state.dispose()
+    async def stop():
+        await SQLDepends.state.dispose()
 
     @staticmethod
-    def depends():
-        with Session(SQLDepends.state) as session:
+    async def depends():
+        async with AsyncSession(SQLDepends.state) as session:
             yield session

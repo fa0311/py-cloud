@@ -1,63 +1,45 @@
-import shutil
 from pathlib import Path
 
+import aiofiles
+import aiofiles.os as os
 import pytest
-from fastapi.testclient import TestClient
-from webdav3.client import Client
+import pytest_asyncio
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 
 from src.depends.logging import LoggingDepends
 from src.depends.sql import SQLDepends
 from src.job.slow_task import slow_task
-from src.main import app
+from src.main import env, init_fastapi
 
 
-@pytest.fixture
-def client():  # noqa: F811
-    shutil.rmtree("data", ignore_errors=True)
+@pytest_asyncio.fixture
+async def client():  # noqa: F811
+    app = FastAPI(root_path=env.ROOT_PATH)
+    init_fastapi(app)
+    await os.makedirs("data", exist_ok=True)
     LoggingDepends.init(path=Path("logs/test.log"))
-    SQLDepends.test()
-    yield TestClient(app)
-    SQLDepends.stop()
+    await SQLDepends.test()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as ac:
+        yield ac
+    await SQLDepends.stop()
 
 
-def test_post_upload(client: TestClient):
+@pytest.mark.asyncio
+async def test_post_upload(client: AsyncClient):
     filename = "assets/Rick Astley - Never Gonna Give You Up (Official Music Video).mp4"
-    with open(filename, "rb") as file:
-        res = client.post(
+
+    async with aiofiles.open(filename, "rb") as file:
+        data = await file.read()
+        res = await client.post(
             "/api/upload/test_upload.mp4",
-            files={"file": file},
+            files={"file": data},
         )
 
     assert res.status_code == 200
 
-    slow_task()
-
-
-def test_webdav_list():
-    options = {
-        "webdav_hostname": "http://localhost:8000/api/webdav",
-        # "webdav_hostname": "https://xn--p8jr3f0f.xn--w8j2f.com/remote.php/dav/files/yuki",
-    }
-    webdav = Client(options)
-    webdav.list("/", get_info=True)
-
-
-def test_webdav_check():
-    options = {
-        "webdav_hostname": "http://localhost:8000/api/webdav",
-        # "webdav_hostname": "https://xn--p8jr3f0f.xn--w8j2f.com/remote.php/dav/files/yuki",
-    }
-    webdav = Client(options)
-    webdav.check("/")
-
-
-def test_webdav_upload():
-    options = {
-        "webdav_hostname": "http://localhost:8000/api/webdav",
-        # "webdav_hostname": "https://xn--p8jr3f0f.xn--w8j2f.com/remote.php/dav/files/yuki",
-    }
-    webdav = Client(options)
-    webdav.upload(
-        "/aaa.mp4",
-        "assets/Rick Astley - Never Gonna Give You Up (Official Music Video).mp4",
-    )
+    await slow_task()

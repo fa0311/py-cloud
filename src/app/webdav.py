@@ -1,10 +1,12 @@
 from logging import Logger
 
-from fastapi import APIRouter, Depends, Response
+import aiofiles
+from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
 from src.depends.logging import LoggingDepends
 from src.depends.sql import SQLDepends
+from src.util.file import FileResolver
 from src.util.xml import to_webdav
 
 router = APIRouter()
@@ -16,7 +18,9 @@ router = APIRouter()
     methods=["PROPFIND"],
     description="List files in webdav",
 )
-def list(
+async def list(
+    file_path: str,
+    request: Request,
     logger: Logger = Depends(LoggingDepends.depends),
     session: Session = Depends(SQLDepends.depends),
 ):
@@ -42,7 +46,9 @@ def list(
     methods=["HEAD"],
     description="Check file in webdav",
 )
-def check(
+async def check(
+    file_path: str,
+    request: Request,
     logger: Logger = Depends(LoggingDepends.depends),
     session: Session = Depends(SQLDepends.depends),
 ):
@@ -52,18 +58,33 @@ def check(
     )
 
 
-# @router.api_route(
-#     "/webdav/{file_path:path}",
-#     tags=["webdav"],
-#     methods=["HEAD"],
-#     description="Upload file to webdav",
-# )
-# def upload(
-#     file: bytes,
-#     logger: Logger = Depends(LoggingDepends.depends),
-#     session: Session = Depends(SQLDepends.depends),
-# ):
-#     return Response(
-#         content="",
-#         media_type="text/plain",
-#     )
+@router.api_route(
+    "/webdav/{file_path:path}",
+    tags=["webdav"],
+    methods=["PUT"],
+    description="Upload file to webdav",
+)
+async def upload(
+    file_path: str,
+    request: Request,
+    logger: Logger = Depends(LoggingDepends.depends),
+    session: Session = Depends(SQLDepends.depends),
+):
+    try:
+        binary_data = await request.body()
+        output_file = await FileResolver.get_file_str(file_path)
+
+        async with aiofiles.open(output_file, "wb") as f:
+            await f.write(binary_data)
+
+    except Exception as e:
+        return Response(
+            content=str(e),
+            media_type="text/plain",
+            status_code=500,
+        )
+
+    return Response(
+        content="",
+        media_type="text/plain",
+    )
