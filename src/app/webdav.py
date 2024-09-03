@@ -116,3 +116,21 @@ async def upload(
         content="",
         media_type="text/plain",
     )
+
+
+@router.api_route(
+    "/webdav/{file_path:path}",
+    tags=["webdav"],
+    methods=["OPTIONS"],
+    description="Check file in webdav",
+)
+async def options(
+    file_path: str,
+    request: Request,
+    logger: Logger = Depends(LoggingDepends.depends),
+    session: Session = Depends(SQLDepends.depends),
+):
+    return Response(
+        content="",
+        media_type="text/plain",
+    )
