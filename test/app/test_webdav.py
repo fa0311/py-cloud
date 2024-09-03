@@ -60,6 +60,6 @@ async def test_webdav_upload(client):
     }
     webdav = Client(options)
     webdav.upload(
-        "/aaa.mp4",
-        "assets/Rick Astley - Never Gonna Give You Up (Official Music Video).mp4",
+        "/aaa.mkv",
+        "assets/Rick Astley - Never Gonna Give You Up (Official Music Video).mkv",
     )

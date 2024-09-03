@@ -1,3 +1,4 @@
+import time
 from logging import Logger
 
 import aiofiles
@@ -24,19 +25,46 @@ async def list(
     logger: Logger = Depends(LoggingDepends.depends),
     session: Session = Depends(SQLDepends.depends),
 ):
-    responses = {
-        "response": [
-            {
-                "href": "/remote.php/dav/files/yuki/",
-                "prop": {},
-                "status": "HTTP/1.1 200 OK",
-            }
-        ]
-    }
+    responses = [
+        {
+            "response": {
+                "href": "/api/webdav/",
+                "propstat": {
+                    "prop": {
+                        "getlastmodified": time.strftime("%a, %d %b %Y %H:%M:%S GMT"),
+                        "resourcetype": {"collection": None},
+                        "quota-used-bytes": "861483204253",
+                        "quota-available-bytes": "-3",
+                    },
+                    "status": "HTTP/1.1 200 OK",
+                },
+            },
+        },
+        {
+            "response": {
+                "href": "/api/webdav/test.txt",
+                "propstat": {
+                    "prop": {
+                        "getlastmodified": time.strftime("%a, %d %b %Y %H:%M:%S GMT"),
+                        "getcontentlength": str(1145141919810364364),
+                        "resourcetype": None,
+                        "getcontenttype": "application/octet-stream",
+                    },
+                    "status": "HTTP/1.1 200 OK",
+                },
+            },
+        },
+    ]
+
+    output = to_webdav(responses)
+
+    with open("output.xml", "w") as f:
+        f.write(output.decode())
 
     return Response(
         content=to_webdav(responses),
         media_type="text/xml",
+        headers={"Content-Type": "text/xml; charset=utf-8"},
     )
 
 

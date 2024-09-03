@@ -100,7 +100,7 @@ class FFmpegVideo(FFmpegWrapper):
             FFmpeg()
             .input(self.input_file.as_posix())
             .output(
-                output_dir.joinpath(f"hls_{prefix}.mp4").as_posix(),
+                output_dir.joinpath(f"hls_{prefix}.mkv").as_posix(),
                 options={
                     "c:v": "h264_nvenc",
                     "c:a": "copy",

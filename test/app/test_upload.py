@@ -31,12 +31,12 @@ async def client():  # noqa: F811
 
 @pytest.mark.asyncio
 async def test_post_upload(client: AsyncClient):
-    filename = "assets/Rick Astley - Never Gonna Give You Up (Official Music Video).mp4"
+    filename = "assets/Rick Astley - Never Gonna Give You Up (Official Music Video).mkv"
 
     async with aiofiles.open(filename, "rb") as file:
         data = await file.read()
         res = await client.post(
-            "/api/upload/test_upload.mp4",
+            "/api/upload/test_upload.mkv",
             files={"file": data},
         )
 

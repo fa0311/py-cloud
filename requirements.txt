@@ -26,3 +26,5 @@ python-ffmpeg
 pytest-asyncio
 
 trio
+
+webdavclient3

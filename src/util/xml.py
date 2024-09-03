@@ -1,11 +1,12 @@
 import xml.etree.ElementTree as ET
+from typing import Union
 
 
 def set_namespaces(namespaces: dict):
     return {f"xmlns:{k}": v for k, v in namespaces.items()}
 
 
-def to_webdav(data):
+def to_webdav(data) -> bytes:
     namespaces = {"d": "DAV:"}
 
     multistatus = ET.Element(
@@ -13,16 +14,20 @@ def to_webdav(data):
         **set_namespaces(namespaces),
     )
     to_webdav_child(multistatus, data)
-    return ET.tostring(multistatus, encoding="utf-8")
+    return ET.tostring(
+        multistatus,
+        encoding="utf-8",
+        xml_declaration=True,
+    )
 
 
-def to_webdav_child(parent: ET.Element, data: dict):
-    for key, value in data.items():
-        elem = ET.SubElement(parent, f"d:{key}")
-        if isinstance(value, str):
-            elem.text = value
-        elif isinstance(value, dict):
-            to_webdav_child(elem, value)
-        elif isinstance(value, list):
-            for item in value:
-                to_webdav_child(elem, item)
+def to_webdav_child(parent: ET.Element, data: Union[dict, list]):
+    if isinstance(data, list):
+        for item in data:
+            to_webdav_child(parent, item)
+    elif isinstance(data, dict):
+        for key, value in data.items():
+            if isinstance(value, str):
+                ET.SubElement(parent, f"d:{key}").text = value
+            else:
+                to_webdav_child(ET.SubElement(parent, f"d:{key}"), value)
