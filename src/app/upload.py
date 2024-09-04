@@ -29,7 +29,7 @@ async def post_upload(
     logger: Logger = Depends(LoggingDepends.depends),
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
-    output_file = await FileResolver.get_file_str(file_path)
+    output_file = await FileResolver.get_file(file_path)
 
     async with aiofiles.open(output_file, "wb") as buffer:
         content = await file.read()

@@ -19,7 +19,7 @@ class Job:
 
     @staticmethod
     async def stop():
-        await Job.state.shutdown()
+        Job.state.shutdown()
 
     @staticmethod
     async def depends():

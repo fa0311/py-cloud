@@ -1,6 +1,6 @@
-import pathlib
 import uuid
 from datetime import datetime
+from pathlib import Path
 
 from pydantic import Field
 from sqlalchemy import CHAR, JSON, Boolean, DateTime, Integer, String
@@ -27,6 +27,6 @@ class FileModel(ModelBase):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
     directory: bool = Field()
     size: int = Field()
-    filename: pathlib.Path = Field()
+    filename: Path = Field()
     data: dict = Field(default_factory=dict)
     last_time: datetime = Field(default_factory=datetime.now)

@@ -1,4 +1,5 @@
 import os
+import random
 import threading
 import urllib.parse
 from pathlib import Path
@@ -21,13 +22,14 @@ async def client():
     os.makedirs("data", exist_ok=True)
     LoggingDepends.init(path=Path("logs/test.log"))
     await SQLDepends.test()
+    port = random.randint(49152, 65535)
 
     def run():
-        uvicorn.run(app, host="0.0.0.0", port=8000)
+        uvicorn.run(app, host="0.0.0.0", port=port)
 
     threading.Thread(target=run, daemon=True).start()
 
-    yield lambda path: urllib.parse.urljoin("http://localhost:8000", path)
+    yield lambda path: urllib.parse.urljoin(f"http://localhost:{port}", path)
     await SQLDepends.stop()
 
 
@@ -35,17 +37,16 @@ async def client():
 async def test_webdav_list(client):
     options = {
         "webdav_hostname": client("/api/webdav"),
-        # "webdav_hostname": "https://xn--p8jr3f0f.xn--w8j2f.com/remote.php/dav/files/yuki",
     }
     webdav = Client(options)
     res = webdav.list("/", get_info=True)
+    assert res
 
 
 @pytest.mark.asyncio
 async def test_webdav_check(client):
     options = {
         "webdav_hostname": client("/api/webdav"),
-        # "webdav_hostname": "https://xn--p8jr3f0f.xn--w8j2f.com/remote.php/dav/files/yuki",
     }
     webdav = Client(options)
     res = webdav.check("/")
@@ -56,7 +57,6 @@ async def test_webdav_check(client):
 async def test_webdav_upload(client):
     options = {
         "webdav_hostname": client("/api/webdav"),
-        # "webdav_hostname": "https://xn--p8jr3f0f.xn--w8j2f.com/remote.php/dav/files/yuki",
     }
     webdav = Client(options)
     webdav.upload(

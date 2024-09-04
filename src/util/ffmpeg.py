@@ -1,16 +1,17 @@
 import json
-import pathlib
+from pathlib import Path
+from typing import Any
 
 from ffmpeg.asyncio import FFmpeg
 
 
 class FFmpegWrapper:
-    def __init__(self, input_file: pathlib.Path, ffprobe: dict):
+    def __init__(self, input_file: Path, ffprobe: dict[str, Any]):
         self.input_file = input_file
         self.ffprobe = ffprobe
 
     @classmethod
-    async def from_file(cls, input_file: pathlib.Path):
+    async def from_file(cls, input_file: Path):
         stream = (
             FFmpeg(executable="ffprobe")
             .input(input_file.as_posix())
@@ -18,8 +19,14 @@ class FFmpegWrapper:
             .option("show_streams")
             .option("of", "json")
         )
-        data = await stream.execute()
-        ffprobe = json.loads(data)
+        try:
+            data = await stream.execute()
+            ffprobe = json.loads(data)
+        except Exception:
+            ffprobe = {
+                "format": {},
+                "streams": [],
+            }
 
         return cls(input_file, ffprobe)
 
@@ -28,7 +35,7 @@ class FFmpegWrapper:
 
 
 class FFmpegVideo(FFmpegWrapper):
-    def __init__(self, input_file: pathlib.Path, ffprobe: dict):
+    def __init__(self, input_file: Path, ffprobe: dict[str, Any]):
         super().__init__(input_file, ffprobe)
         video = self.get_video_stream()
         if video is None:
@@ -55,7 +62,7 @@ class FFmpegVideo(FFmpegWrapper):
 
         return False
 
-    async def thumbnail(self, output_dir: pathlib.Path, prefix: str):
+    async def thumbnail(self, output_dir: Path, prefix: str):
         thumbnail = self.get_thumbnail_stream()
         if thumbnail is None:
             stream = (
@@ -91,7 +98,7 @@ class FFmpegVideo(FFmpegWrapper):
 
     async def down_scale(
         self,
-        output_dir: pathlib.Path,
+        output_dir: Path,
         prefix: str,
         width: int,
         bitrate: int,
