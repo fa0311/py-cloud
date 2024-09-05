@@ -28,12 +28,13 @@ class SQLDepends:
             await conn.run_sync(SQLBase.metadata.create_all)
 
     @staticmethod
-    async def test():
+    async def test(drop_all: bool = False):
         env = Environ()
         name = f"{env.DB_URL}_test"
         SQLDepends.state = create_async_engine(name, echo=env.SQL_ECHO)
         async with SQLDepends.state.begin() as conn:
-            await conn.run_sync(SQLBase.metadata.drop_all)
+            if drop_all:
+                await conn.run_sync(SQLBase.metadata.drop_all)
             await conn.run_sync(SQLBase.metadata.create_all)
 
     @staticmethod

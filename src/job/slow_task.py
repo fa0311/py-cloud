@@ -50,7 +50,7 @@ async def move_hook(session: AsyncSession, src: Path, dst: Path):
         assert isinstance(file_orm, FileORM)
         file_model = FileModel.model_validate_orm(file_orm)
         dst_path = dst.joinpath(file_model.filename.relative_to(src))
-        file_orm.filename = dst_path.as_posix()
+        file_orm.filename = str(dst_path)
     await session.commit()
 
 

@@ -13,7 +13,7 @@
       "name": "Python: Unvicorn",
       "type": "debugpy",
       "request": "launch",
-      "program": "src/main.py",
+      "program": "main.py",
       "console": "integratedTerminal",
       "env": {
         "PYTHONPATH": "${workspaceRoot}"

@@ -1,19 +1,15 @@
 from logging import Logger
 from pathlib import Path
 
-import aiofiles
-import aiofiles.os as os
 from fastapi import APIRouter, Depends, Request, Response
-from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
 )
 
-import src.util.aioshutils as shutil
 from src.depends.logging import LoggingDepends
 from src.depends.sql import SQLDepends
-from src.job.slow_task import copy_hook, delete_hook, move_hook, put_hook
+from src.service.file import FileService
 from src.util.file import FileResolver
 from src.util.xml import to_webdav
 
@@ -21,62 +17,21 @@ security = HTTPBasic()
 router = APIRouter()
 
 
-def success_response():
-    return Response(media_type="application/octet-stream")
+class FileServiceWebDav(FileService):
+    def success_response(self):
+        return Response(media_type="application/octet-stream")
 
+    def data_response(self, data):
+        return Response(content=to_webdav(data), media_type="application/xml")
 
-def xml_response(xml):
-    return Response(content=to_webdav(xml), media_type="application/xml")
+    def conflict_response(self):
+        return Response(media_type="application/octet-stream", status_code=409)
 
+    def not_allowed_response(self):
+        return Response(media_type="application/octet-stream", status_code=405)
 
-def conflict_response():
-    return Response(media_type="application/octet-stream", status_code=409)
-
-
-def not_allowed_response():
-    return Response(media_type="application/octet-stream", status_code=405)
-
-
-def not_found_response():
-    return Response(media_type="application/octet-stream", status_code=404)
-
-
-def get_base(path: Path) -> list:
-    return [
-        {
-            "response": {
-                "href": path.as_posix(),
-                "propstat": {
-                    "prop": {},
-                },
-                "status": "HTTP/1.1 200 OK",
-            }
-        }
-    ]
-
-
-async def get_file(href: Path, path: Path):
-    stat = await os.stat(path)
-
-    if await os.path.isdir(path):
-        content_type = "httpd/unix-directory"
-    else:
-        content_type = "application/octet-stream"
-
-    return {
-        "response": {
-            "href": href.as_posix(),
-            "propstat": {
-                "prop": {
-                    "getlastmodified": stat.st_mtime,
-                    "getcontentlength": stat.st_size,
-                    "resourcetype": None,
-                    "getcontenttype": content_type,
-                },
-                "status": "HTTP/1.1 200 OK",
-            },
-        },
-    }
+    def not_found_response(self):
+        return Response(media_type="application/octet-stream", status_code=404)
 
 
 @router.api_route(
@@ -92,11 +47,7 @@ async def check(
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
     path = await FileResolver.get_file(file_path)
-
-    if await os.path.exists(path):
-        return success_response()
-    else:
-        return not_found_response()
+    return await FileServiceWebDav().check(path, request, logger, session)
 
 
 @router.api_route(
@@ -112,21 +63,7 @@ async def list(
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
     path = await FileResolver.get_file(file_path)
-
-    if await os.path.isdir(path):
-        responses = get_base(Path(request.url.path))
-        for file in await os.listdir(path.as_posix()):
-            href = Path(request.url.path).joinpath(file)
-            responses.append(await get_file(href, path.joinpath(file)))
-
-        return xml_response(responses)
-
-    elif await os.path.isfile(path):
-        href = Path(request.url.path)
-        responses = [await get_file(href, path)]
-        return xml_response(responses)
-    else:
-        return not_found_response()
+    return await FileServiceWebDav().list(path, request, logger, session)
 
 
 @router.api_route(
@@ -141,18 +78,8 @@ async def upload(
     logger: Logger = Depends(LoggingDepends.depends),
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
-    if FileResolver.temp_path in Path(file_path).parents:
-        return not_allowed_response()
-    else:
-        binary_stream = request.stream()
-        output_file = await FileResolver.get_file(file_path)
-
-        async with aiofiles.open(output_file, "wb") as f:
-            async for chunk in binary_stream:
-                await f.write(chunk)
-
-        await put_hook(session, output_file)
-        return success_response()
+    path = await FileResolver.get_file(file_path)
+    return await FileServiceWebDav().upload(path, request, logger, session)
 
 
 @router.api_route(
@@ -168,11 +95,7 @@ async def download(
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
     path = await FileResolver.get_file(file_path)
-
-    if await os.path.isfile(path):
-        return FileResponse(path, media_type="application/octet-stream")
-    else:
-        return not_found_response()
+    return await FileServiceWebDav().download(path, request, logger, session)
 
 
 @router.api_route(
@@ -188,26 +111,7 @@ async def delete(
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
     path = await FileResolver.get_file(file_path)
-
-    if FileResolver.trashbin_path in path.parents:
-        try:
-            await shutil.rmtree(path)
-        except Exception:
-            return conflict_response()
-        return success_response()
-
-    elif FileResolver.temp_path in path.parents:
-        return not_allowed_response()
-    else:
-        trash = await FileResolver.get_trashbin(file_path)
-
-        try:
-            await shutil.move(path, trash)
-        except Exception:
-            return conflict_response()
-
-        await delete_hook(session, path)
-        return success_response()
+    return await FileServiceWebDav().delete(path, request, logger, session)
 
 
 @router.api_route(
@@ -223,14 +127,7 @@ async def mkdir(
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
     path = FileResolver.base_path.joinpath(file_path)
-    if FileResolver.temp_path in path.parents:
-        return not_allowed_response()
-    else:
-        if await os.path.exists(path):
-            return conflict_response()
-
-        await os.makedirs(path)
-        return success_response()
+    return await FileServiceWebDav().mkdir(path, request, logger, session)
 
 
 @router.api_route(
@@ -246,25 +143,9 @@ async def move(
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
     path = await FileResolver.get_file(file_path)
-    baseurl = FileResolver.get_base_url(Path(file_path), Path(request.url.path))
+    baseurl = FileResolver.get_base_url(Path(request.url.path), Path(file_path))
     rename = await FileResolver.from_url(baseurl, request.headers["destination"])
-
-    if FileResolver.temp_path in path.parents:
-        return not_allowed_response()
-    elif FileResolver.temp_path in rename.parents:
-        return not_allowed_response()
-    elif FileResolver.trashbin_path in path.parents:
-        return not_allowed_response()
-    elif FileResolver.trashbin_path in rename.parents:
-        return not_allowed_response()
-    else:
-        try:
-            await shutil.move(path, rename)
-        except Exception:
-            return conflict_response()
-
-        await move_hook(session, path, rename)
-        return success_response()
+    return await FileServiceWebDav().move(path, rename, request, logger, session)
 
 
 @router.api_route(
@@ -281,21 +162,6 @@ async def copy(
 ):
     path = await FileResolver.get_file(file_path)
     baseurl = FileResolver.get_base_url(Path(request.url.path), Path(file_path))
-    rename = await FileResolver.from_url(baseurl, request.headers["destination"])
+    copy = await FileResolver.from_url(baseurl, request.headers["destination"])
 
-    if FileResolver.temp_path in path.parents:
-        return not_allowed_response()
-    elif FileResolver.temp_path in rename.parents:
-        return not_allowed_response()
-    elif FileResolver.trashbin_path in path.parents:
-        return not_allowed_response()
-    elif FileResolver.trashbin_path in rename.parents:
-        return not_allowed_response()
-    else:
-        try:
-            await shutil.copyfile(path, rename)
-        except Exception:
-            return conflict_response()
-
-        await copy_hook(session, path, rename)
-        return success_response()
+    return await FileServiceWebDav().copy(path, copy, request, logger, session)

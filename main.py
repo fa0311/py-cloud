@@ -11,12 +11,24 @@ from src.depends.job import Job
 from src.depends.logging import LoggingDepends
 from src.depends.sql import SQLDepends
 from src.models.environ import Environ
+from src.util.file import FileResolver
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     LoggingDepends.init(path=Path("logs/main.log"))
     await SQLDepends.start()
+    await Job.start()
+    yield
+    await Job.stop()
+    await SQLDepends.stop()
+
+
+@asynccontextmanager
+async def test_lifespan(app: FastAPI):
+    FileResolver.set_temp()
+    LoggingDepends.init(path=Path("logs/testing.log"))
+    await SQLDepends.test(drop_all=True)
     await Job.start()
     yield
     await Job.stop()
@@ -36,17 +48,22 @@ def init_fastapi(app: FastAPI):
 
 
 env = Environ()
-app = FastAPI(lifespan=lifespan, root_path=env.ROOT_PATH)
-init_fastapi(app)
+if env.TESTING:
+    app = FastAPI(lifespan=test_lifespan, root_path=env.ROOT_PATH)
+    init_fastapi(app)
+else:
+    app = FastAPI(lifespan=lifespan, root_path=env.ROOT_PATH)
+    init_fastapi(app)
+
 
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
-        port=8000,
+        host=env.HOST,
+        port=env.PORT,
         # log_config={
         #     "version": 1,
         #     "disable_existing_loggers": False,
         # },
-        reload=True,
+        reload=(not env.TESTING),
     )

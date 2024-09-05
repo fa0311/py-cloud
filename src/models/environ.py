@@ -23,6 +23,21 @@ class Environ(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
 
+    HOST: str = Field(
+        default="0.0.0.0",
+        description="ホスト",
+    )
+
+    PORT: int = Field(
+        default=8000,
+        description="ポート",
+    )
+
+    TESTING: bool = Field(
+        default=False,
+        description="Pytest用",
+    )
+
     DB_URL: str = Field(
         default="sqlite:///py_cloud.db",
         description="データベースのURL, 例: mysql+mysqlconnector://root:@localhost:3306/py_cloud",
