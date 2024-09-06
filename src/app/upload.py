@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import (
 
 from src.depends.logging import LoggingDepends
 from src.depends.sql import SQLDepends
-from src.service.file import FileService
+from src.service.slow_task import FileService
 from src.util.file import FileResolver
 
 router = APIRouter()
@@ -45,7 +45,7 @@ class FileServiceRest(FileService):
     def not_found_response(self):
         raise HTTPException(status_code=404)
 
-    async def get_base(self, path: Path) -> list:
+    async def get_base(self, href: Path, path: Path) -> list:
         return []
 
     async def get_file(self, href: Path, path: Path) -> FileResponse:
@@ -74,7 +74,7 @@ async def get_list(
     session: Annotated[AsyncSession, Depends(SQLDepends.depends)],
 ):
     path = Path(file_path)
-    return await FileServiceRest().list(path, request, logger, session)
+    return await FileServiceRest(request, logger, session).list(path)
 
 
 @router.put(
@@ -91,7 +91,7 @@ async def post_upload(
     session: Annotated[AsyncSession, Depends(SQLDepends.depends)],
 ):
     path = Path(file_path)
-    return await FileServiceRest().upload(path, request, logger, session)
+    return await FileServiceRest(request, logger, session).upload(path)
 
 
 @router.get(
@@ -107,7 +107,7 @@ async def get_download(
     session: Annotated[AsyncSession, Depends(SQLDepends.depends)],
 ):
     path = Path(file_path)
-    return await FileServiceRest().download(path, request, logger, session)
+    return await FileServiceRest(request, logger, session).download(path)
 
 
 @router.delete(
@@ -123,7 +123,7 @@ async def delete_delete(
     session: Annotated[AsyncSession, Depends(SQLDepends.depends)],
 ):
     path = Path(file_path)
-    return await FileServiceRest().delete(path, request, logger, session)
+    return await FileServiceRest(request, logger, session).delete(path)
 
 
 @router.post(
@@ -139,7 +139,7 @@ async def post_mkdir(
     session: Annotated[AsyncSession, Depends(SQLDepends.depends)],
 ):
     path = Path(file_path)
-    return await FileServiceRest().mkdir(path, request, logger, session)
+    return await FileServiceRest(request, logger, session).mkdir(path)
 
 
 @router.post(
@@ -157,7 +157,7 @@ async def post_move(
 ):
     path = Path(file_path)
     rename = Path(rename_path)
-    return await FileServiceRest().move(path, rename, request, logger, session)
+    return await FileServiceRest(request, logger, session).move(path, rename)
 
 
 @router.post(
@@ -175,4 +175,4 @@ async def post_copy(
 ):
     path = Path(file_path)
     copy = Path(copy_path)
-    return await FileServiceRest().copy(path, copy, request, logger, session)
+    return await FileServiceRest(request, logger, session).copy(path, copy)

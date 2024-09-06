@@ -20,7 +20,9 @@ class FileORM(SQLBase, ORMMixin):
     size: Mapped[int] = mapped_column(Integer, nullable=False)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     data: Mapped[str] = mapped_column(JSON, nullable=False)
-    last_time: Mapped[int] = mapped_column(DateTime, nullable=False)
+    internet_media_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
 class FileModel(ModelBase):
@@ -29,4 +31,6 @@ class FileModel(ModelBase):
     size: int = Field()
     filename: Path = Field()
     data: dict = Field(default_factory=dict)
-    last_time: datetime = Field(default_factory=datetime.now)
+    internet_media_type: str = Field(default="application/octet-stream")
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)

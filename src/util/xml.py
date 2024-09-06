@@ -29,5 +29,9 @@ def to_webdav_child(parent: ET.Element, data: Union[dict, list]):
         for key, value in data.items():
             if isinstance(value, str):
                 ET.SubElement(parent, f"d:{key}").text = value
+            elif isinstance(value, int):
+                ET.SubElement(parent, f"d:{key}").text = str(value)
+            elif isinstance(value, float):
+                ET.SubElement(parent, f"d:{key}").text = str(value)
             else:
                 to_webdav_child(ET.SubElement(parent, f"d:{key}"), value)

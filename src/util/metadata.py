@@ -20,8 +20,6 @@ REMOVABLE_TAGS = [
 
 TAGS = {k: v for k, v in ExifTags.TAGS.items() if v not in REMOVABLE_TAGS}
 
-MEDIA_EXTENSIONS = [".pdf", ".zip", ".mp4", ".mov", ".webm", ".mkv"]
-AUDIO_EXTENSIONS = [".flac", ".mp3", ".ogg", ".wav"]
 IMAGE_EXTENSIONS = [
     ".heic",
     ".jpeg",
@@ -102,66 +100,56 @@ def json_or_str(obj: Any) -> str:
         return json.dumps([json_or_str(item) for item in obj])
     elif isinstance(obj, (bytes, bytearray)):
         try:
-            try:
-                try:
-                    return obj.decode("utf-8")
-                except Exception:
-                    return obj.decode("utf-16")
-            except Exception:
-                return obj.decode("shift-jis")
+            return obj.decode("utf-8")
         except Exception:
             return "Binary data"
     else:
         return str(obj)
 
 
-def get_metadata(file_path: Path):
-    file_extension = file_path.suffix.lower()
-
-    if file_extension in MEDIA_EXTENSIONS:
-        return get_media_info(file_path)
-    elif file_extension in AUDIO_EXTENSIONS:
-        return get_audio_metadata(file_path)
-    elif file_extension in IMAGE_EXTENSIONS:
-        return get_image_metadata(file_path)
-    else:
-        return None
-
-
-def get_media_info(file_path: Path):
+def get_media_info(file_path: Path) -> dict:
     media_info = MediaInfo.parse(file_path)
     assert isinstance(media_info, MediaInfo)
-    res = media_info.to_data()["tracks"][0]  # type: ignore
+    res: dict = media_info.to_data().get("tracks", [{}])[0]
     return {k: json_or_str(v) for k, v in res.items()}
 
 
-def get_audio_metadata(file_path: Path):
-    audio: FileType = MutagenFile(file_path)  # type: ignore https://github.com/microsoft/pyright/discussions/8608
-    if audio:
+def get_mutagen_metadata(file_path: Path) -> dict:
+    try:
+        audio: FileType = MutagenFile(file_path)  # type: ignore
+    except Exception:
+        return {}
+    if audio is None:
+        return {}
+    elif audio:
         return {k: json_or_str(v) for k, (v,) in audio.items()}
     else:
         items = audio.info.__dict__.items()
         return {k: json_or_str(v) for k, v in items if not k.startswith("_")}
 
 
-def get_image_metadata(file_path: Path):
+def get_pillow_metadata(file_path: Path) -> dict:
     res = {}
-    with Image.open(file_path) as img:
-        getxmp = img.getxmp()
-        exif = img.getexif().items()
+    try:
+        with Image.open(file_path) as img:
+            getxmp = img.getxmp()
+            exif = img.getexif().items()
+    except Exception:
+        return {}
 
     if isinstance(img, PngImageFile):
-        res.update(img.info)
-
-    if img.info.get("photoshop"):
-        iptc = IPTCInfo(file_path)._data.items()
-        res.update({x: json_or_str(v) for k, v in iptc if (x := IPTC_TAGS.get(k))})
+        res.update({x: json_or_str(v) for x, v in img.info.items()})
 
     res.update({x: json_or_str(v) for k, v in exif if (x := TAGS.get(k))})
     if getxmp:
-        desc = getxmp["xmpmeta"]["RDF"]["Description"]  # type: ignore https://github.com/microsoft/pyright/discussions/8608
+        desc = getxmp.get("xmpmeta", {}).get("RDF", {}).get("Description", {})
         if isinstance(desc, list):
             desc = reduce(lambda x, y: (x if isinstance(x, dict) else (x | y)), desc)
         res.update({k: json_or_str(v) for k, v in desc.items()})
 
     return res
+
+
+def get_iptc_info(file_path: Path) -> dict:
+    iptc = IPTCInfo(file_path)._data.items()
+    return {x: json_or_str(v) for k, v in iptc if (x := IPTC_TAGS.get(k))}

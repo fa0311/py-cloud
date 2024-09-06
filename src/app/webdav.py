@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import (
 
 from src.depends.logging import LoggingDepends
 from src.depends.sql import SQLDepends
-from src.service.file import FileService
+from src.service.slow_task import FileService
 from src.util.file import FileResolver
 from src.util.xml import to_webdav
 
@@ -21,8 +21,15 @@ class FileServiceWebDav(FileService):
     def success_response(self):
         return Response(media_type="application/octet-stream")
 
+    def created_response(self):
+        return Response(media_type="application/octet-stream", status_code=201)
+
+    def no_content_response(self):
+        return Response(media_type="application/octet-stream", status_code=204)
+
     def data_response(self, data):
-        return Response(content=to_webdav(data), media_type="application/xml")
+        content = to_webdav(data)
+        return Response(content=content, media_type="application/xml", status_code=207)
 
     def conflict_response(self):
         return Response(media_type="application/octet-stream", status_code=409)
@@ -37,7 +44,7 @@ class FileServiceWebDav(FileService):
 @router.api_route(
     "/webdav/{file_path:path}",
     tags=["webdav"],
-    methods=["HEAD", "OPTIONS", "LOCK", "UNLOCK", "PROPPATCH"],
+    methods=["HEAD", "OPTIONS", "PROPPATCH"],
     description="Check file in webdav",
 )
 async def check(
@@ -47,7 +54,39 @@ async def check(
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
     path = await FileResolver.get_file(file_path)
-    return await FileServiceWebDav().check(path, request, logger, session)
+    return await FileServiceWebDav(request, logger, session).check(path)
+
+
+@router.api_route(
+    "/webdav/{file_path:path}",
+    tags=["webdav"],
+    methods=["LOCK"],
+    description="Lock file in webdav",
+)
+async def lock(
+    file_path: str,
+    request: Request,
+    logger: Logger = Depends(LoggingDepends.depends),
+    session: AsyncSession = Depends(SQLDepends.depends),
+):
+    path = await FileResolver.get_file(file_path)
+    return await FileServiceWebDav(request, logger, session).lock(path)
+
+
+@router.api_route(
+    "/webdav/{file_path:path}",
+    tags=["webdav"],
+    methods=["UNLOCK"],
+    description="Unlock file in webdav",
+)
+async def unlock(
+    file_path: str,
+    request: Request,
+    logger: Logger = Depends(LoggingDepends.depends),
+    session: AsyncSession = Depends(SQLDepends.depends),
+):
+    path = await FileResolver.get_file(file_path)
+    return await FileServiceWebDav(request, logger, session).unlock(path)
 
 
 @router.api_route(
@@ -63,7 +102,7 @@ async def list(
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
     path = await FileResolver.get_file(file_path)
-    return await FileServiceWebDav().list(path, request, logger, session)
+    return await FileServiceWebDav(request, logger, session).list(path)
 
 
 @router.api_route(
@@ -79,7 +118,7 @@ async def upload(
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
     path = await FileResolver.get_file(file_path)
-    return await FileServiceWebDav().upload(path, request, logger, session)
+    return await FileServiceWebDav(request, logger, session).upload(path)
 
 
 @router.api_route(
@@ -95,7 +134,7 @@ async def download(
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
     path = await FileResolver.get_file(file_path)
-    return await FileServiceWebDav().download(path, request, logger, session)
+    return await FileServiceWebDav(request, logger, session).download(path)
 
 
 @router.api_route(
@@ -111,7 +150,7 @@ async def delete(
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
     path = await FileResolver.get_file(file_path)
-    return await FileServiceWebDav().delete(path, request, logger, session)
+    return await FileServiceWebDav(request, logger, session).delete(path)
 
 
 @router.api_route(
@@ -127,7 +166,7 @@ async def mkdir(
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
     path = FileResolver.base_path.joinpath(file_path)
-    return await FileServiceWebDav().mkdir(path, request, logger, session)
+    return await FileServiceWebDav(request, logger, session).mkdir(path)
 
 
 @router.api_route(
@@ -145,7 +184,7 @@ async def move(
     path = await FileResolver.get_file(file_path)
     baseurl = FileResolver.get_base_url(Path(request.url.path), Path(file_path))
     rename = await FileResolver.from_url(baseurl, request.headers["destination"])
-    return await FileServiceWebDav().move(path, rename, request, logger, session)
+    return await FileServiceWebDav(request, logger, session).move(path, rename)
 
 
 @router.api_route(
@@ -164,4 +203,4 @@ async def copy(
     baseurl = FileResolver.get_base_url(Path(request.url.path), Path(file_path))
     copy = await FileResolver.from_url(baseurl, request.headers["destination"])
 
-    return await FileServiceWebDav().copy(path, copy, request, logger, session)
+    return await FileServiceWebDav(request, logger, session).copy(path, copy)
