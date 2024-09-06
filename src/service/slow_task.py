@@ -1,3 +1,4 @@
+import asyncio
 from hashlib import md5
 from logging import Logger
 from pathlib import Path
@@ -7,7 +8,7 @@ from urllib.parse import quote
 import aiofiles
 import aiofiles.os as os
 from fastapi import Request, Response
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import (
@@ -232,11 +233,41 @@ class FileService:
                 await put_hook(self.session, file_path)
             return self.created_response()
 
-    async def download(self, file_path: Path) -> Union[Response, BaseModel]:
-        if await os.path.isfile(file_path):
-            return FileResponse(file_path, media_type="application/octet-stream")
-        else:
+    async def stream(self, file_path: Path, start: int, end: int):
+        try:
+            async with aiofiles.open(file_path, "rb") as f:
+                await f.seek(start)
+                chunk_size = FileResponse.chunk_size
+                while start < end:
+                    chunk = await f.read(min(chunk_size, end - start + 1))
+                    if not chunk:
+                        break
+                    start += len(chunk)
+                    yield chunk
+        except asyncio.CancelledError:
+            pass
+
+    async def download(
+        self, file_path: Path
+    ) -> Union[Response, BaseModel, StreamingResponse]:
+        if not await os.path.isfile(file_path):
             return self.not_found_response()
+        elif self.request.headers.get("Range"):
+            start, end = self.request.headers["Range"].split("=")[1].split("-")
+            start = int(start) if start else 0
+            end = int(end) if end else await os.path.getsize(file_path) - 1
+        else:
+            start = 0
+            end = await os.path.getsize(file_path) - 1
+
+        return StreamingResponse(
+            self.stream(file_path, start, end),
+            headers={
+                "Content-Range": f"bytes {start}-{end}/{await os.path.getsize(file_path)}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(end - start + 1),
+            },
+        )
 
     async def delete(self, file_path: Path) -> Union[Response, BaseModel]:
         if FileResolver.temp_path in file_path.parents:
