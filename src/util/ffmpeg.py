@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 from typing import Any, Union
 
+from aiofiles.ospath import wrap
 from ffmpeg.asyncio import FFmpeg as AsyncFFmpeg
 from ffmpeg.ffmpeg import FFmpeg as SyncFFmpeg
 
@@ -17,16 +18,15 @@ class FFmpegWrapper:
         self.ffprobe = ffprobe
 
     @classmethod
-    async def execute(cls, stream: Union[SyncFFmpeg, AsyncFFmpeg]) -> bytes:
+    async def execute(cls, stream: Union[SyncFFmpeg, AsyncFFmpeg]):
         cmd = [stream._executable] + [f'"{x}"' for x in stream.arguments[1:]]
         cls.logger.info(" ".join(cmd))
         if __debug__:
             assert isinstance(stream, SyncFFmpeg)
-            data = stream.execute()
+            return await wrap(stream.execute)()
         else:
             assert isinstance(stream, AsyncFFmpeg)
-            data = await stream.execute()
-        return data
+            return await stream.execute()
 
     @classmethod
     async def from_file(cls, input_file: Path):
@@ -37,9 +37,14 @@ class FFmpegWrapper:
             .option("show_streams")
             .option("of", "json")
         )
-
-        data = await cls.execute(stream)
-        ffprobe = json.loads(data)
+        try:
+            data = await cls.execute(stream)
+            ffprobe = json.loads(data)
+        except Exception:
+            ffprobe = {
+                "format": {},
+                "streams": [],
+            }
 
         return cls(input_file, ffprobe)
 

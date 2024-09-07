@@ -2,10 +2,9 @@ import random
 import urllib.parse
 from pathlib import Path
 
-import aiofiles
 import pytest
 import pytest_asyncio
-from aiofiles import os
+from aiofiles import open, os
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
@@ -46,7 +45,7 @@ async def test_post_upload(client: AsyncClient):
     filename = "assets/Rick Astley - Never Gonna Give You Up (Official Music Video).mp4"
     assets = Path(filename)
 
-    async with aiofiles.open(assets, "rb") as file:
+    async with open(assets, "rb") as file:
         data = await file.read()
         res = await client.post(
             f"/api/upload/test_upload{assets.suffix}",

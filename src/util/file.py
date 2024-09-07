@@ -25,15 +25,11 @@ class FileResolver:
         return file
 
     @staticmethod
-    async def __get_temp(file_path: Union[str, Path]) -> Path:
-        temp = FileResolver.temp_path.joinpath(file_path)
-        await os.makedirs(temp, exist_ok=True)
-        return temp
-
-    @staticmethod
     async def get_temp_from_data(file_path: Path) -> Path:
         relative_file = file_path.relative_to(FileResolver.base_path)
-        return await FileResolver.__get_temp(relative_file)
+        temp = FileResolver.temp_path.joinpath(relative_file)
+        await os.makedirs(temp.parent, exist_ok=True)
+        return temp
 
     @staticmethod
     async def __get_trashbin(file_path: Union[str, Path]) -> Path:

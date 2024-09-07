@@ -5,8 +5,7 @@ from pathlib import Path
 from typing import Union
 from urllib.parse import quote
 
-import aiofiles
-import aiofiles.os as os
+from aiofiles import open, os
 from fastapi import Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
@@ -15,15 +14,13 @@ from sqlalchemy.ext.asyncio import (
     AsyncSession,
 )
 
-import src.util.aioshutils as shutil
+from src.depends.sql import SQLDepends
 from src.models.file import FileModel, FileORM
-from src.service.metadata import (
-    copy_hook,
-    delete_hook,
-    escape_path,
-    move_hook,
-    put_hook,
-)
+from src.models.slow_task import SlowTaskModel, SlowTaskORM
+from src.sql.file_crad import FileCRAD
+from src.sql.file_lock_crad import FileLockCRADError, FileLockTransaction
+from src.sql.sql import escape_path
+from src.util import aioshutils as shutil
 from src.util.file import FileResolver
 from src.util.rfc1123 import RFC1123
 
@@ -63,6 +60,26 @@ class FileService:
 
     def not_found_response(self) -> Union[Response, BaseModel]:
         return JSONResponse(content={}, status_code=404)
+
+    def locked_response(self) -> Union[Response, BaseModel]:
+        return JSONResponse(content={}, status_code=423)
+
+    @staticmethod
+    def error_decorator(func):
+        async def wrapper(self: "FileService", *args, **kwargs):
+            try:
+                return await func(self, *args, **kwargs)
+            except FileLockCRADError as e:
+                self.logger.error(e)
+                return self.locked_response()
+            except FileNotFoundError as e:
+                self.logger.error(e)
+                return self.not_found_response()
+            except Exception as e:
+                self.logger.error(e)
+                return self.not_found_response()
+
+        return wrapper
 
     async def get_base(self, href: Path, path: Path) -> list:
         file_state = select(FileORM).where(
@@ -151,12 +168,14 @@ class FileService:
         else:
             raise ValueError("Invalid file path")
 
+    @error_decorator
     async def check(self, file_path: Path) -> Union[Response, BaseModel]:
         if await os.path.exists(file_path):
             return self.success_response()
         else:
             return self.not_found_response()
 
+    @error_decorator
     async def lock(self, file_path: Path) -> Union[Response, BaseModel]:
         file_state = select(FileORM).where(FileORM.filename == str(file_path))
         (file_orm,) = (await self.session.execute(file_state)).one()
@@ -195,9 +214,11 @@ class FileService:
         }
         return self.data_response(response)
 
+    @error_decorator
     async def unlock(self, file_path: Path) -> Union[Response, BaseModel]:
         return self.no_content_response()
 
+    @error_decorator
     async def list(self, file_path: Path) -> Union[Response, BaseModel]:
         if await os.path.isdir(file_path):
             responses = await self.get_base(Path(self.request.url.path), file_path)
@@ -214,28 +235,35 @@ class FileService:
         else:
             return self.not_found_response()
 
+    @error_decorator
     async def upload(self, file_path: Path) -> Union[Response, BaseModel]:
-        # temp = await FileResolver.get_temp_from_data(file_path)
         if FileResolver.temp_path in file_path.parents:
+            return self.not_allowed_response()
+        elif FileResolver.trashbin_path in file_path.parents:
             return self.not_allowed_response()
         elif await os.path.exists(file_path):
             return self.conflict_response()
         else:
-            binary_stream = self.request.stream()
-
-            async with aiofiles.open(file_path, "wb") as f:
-                async for chunk in binary_stream:
-                    await f.write(chunk)
-
-            if FileResolver.trashbin_path in file_path.parents:
-                pass
-            else:
-                await put_hook(self.session, file_path)
+            async with FileLockTransaction(SQLDepends.state, file_path):
+                binary_stream = self.request.stream()
+                async with open(file_path, "wb") as f:
+                    async for chunk in binary_stream:
+                        await f.write(chunk)
+                temp_dir = await FileResolver.get_temp_from_data(file_path)
+                await os.makedirs(temp_dir, exist_ok=True)
+                metadata = await FileCRAD(self.session).put(file_path)
+                if metadata.video:
+                    task_model = SlowTaskModel(
+                        type="video_convert",
+                        file_id=metadata.id,
+                    )
+                    self.session.add(SlowTaskORM.from_model(task_model))
+            await self.session.commit()
             return self.created_response()
 
     async def stream(self, file_path: Path, start: int, end: int):
         try:
-            async with aiofiles.open(file_path, "rb") as f:
+            async with open(file_path, "rb") as f:
                 await f.seek(start)
                 chunk_size = FileResponse.chunk_size
                 while start < end:
@@ -247,6 +275,7 @@ class FileService:
         except asyncio.CancelledError:
             pass
 
+    @error_decorator
     async def download(
         self, file_path: Path
     ) -> Union[Response, BaseModel, StreamingResponse]:
@@ -269,25 +298,46 @@ class FileService:
             },
         )
 
+    @error_decorator
     async def delete(self, file_path: Path) -> Union[Response, BaseModel]:
+        if FileResolver.temp_path == file_path:
+            return self.not_allowed_response()
+        elif FileResolver.temp_path in file_path.parents:
+            return self.not_allowed_response()
+        elif not await os.path.exists(file_path):
+            return self.not_found_response()
+        else:
+            async with FileLockTransaction(SQLDepends.state, file_path):
+                temp = await FileResolver.get_temp_from_data(file_path)
+                if FileResolver.trashbin_path == file_path:
+                    await shutil.rmtree(file_path)
+                    await shutil.rmtree(temp)
+                    await os.makedirs(file_path)
+                elif await FileCRAD(self.session).is_empty(file_path):
+                    await shutil.rmtree(file_path)
+                    await shutil.rmtree(temp)
+                elif FileResolver.trashbin_path in file_path.parents:
+                    if await os.path.isdir(file_path):
+                        await shutil.rmtree(file_path)
+                        await shutil.rmtree(temp)
+                    else:
+                        await os.remove(file_path)
+                        await shutil.rmtree(temp)
+                else:
+                    trash = await FileResolver.get_trashbin_from_data(file_path)
+                    temp_trash = await FileResolver.get_temp_from_data(trash)
+                    await shutil.move(file_path, trash)
+                    await shutil.move(temp, temp_trash)
+                    await FileCRAD(self.session).move(file_path, trash)
+                    await FileCRAD(self.session).move(temp, temp_trash)
+            await self.session.commit()
+            return self.success_response()
+
+    @error_decorator
+    async def mkdir(self, file_path: Path) -> Union[Response, BaseModel]:
         if FileResolver.temp_path in file_path.parents:
             return self.not_allowed_response()
         elif FileResolver.trashbin_path in file_path.parents:
-            if await os.path.isdir(file_path):
-                await shutil.rmtree(file_path)
-            else:
-                await os.remove(file_path)
-        elif FileResolver.trashbin_path == file_path:
-            await shutil.rmtree(file_path)
-            await os.makedirs(file_path)
-        else:
-            trash = await FileResolver.get_trashbin_from_data(file_path)
-            await shutil.move(file_path, trash)
-            await delete_hook(self.session, file_path)
-        return self.success_response()
-
-    async def mkdir(self, file_path: Path) -> Union[Response, BaseModel]:
-        if FileResolver.temp_path in file_path.parents:
             return self.not_allowed_response()
         else:
             if await os.path.exists(file_path):
@@ -298,6 +348,7 @@ class FileService:
             await os.makedirs(file_path)
             return self.success_response()
 
+    @error_decorator
     async def move(
         self, file_path: Path, rename_path: Path
     ) -> Union[Response, BaseModel]:
@@ -305,41 +356,44 @@ class FileService:
             return self.not_allowed_response()
         elif FileResolver.temp_path in rename_path.parents:
             return self.not_allowed_response()
+        elif FileResolver.trashbin_path in rename_path.parents:
+            return self.not_allowed_response()
         elif not await os.path.exists(file_path):
             return self.conflict_response()
         elif await os.path.exists(rename_path):
             return self.conflict_response()
         else:
-            await shutil.move(file_path, rename_path)
-            path_trash = FileResolver.trashbin_path in file_path.parents
-            rename_trash = FileResolver.trashbin_path in rename_path.parents
-
-            if rename_trash and path_trash:
-                pass
-            elif rename_trash:
-                await delete_hook(self.session, file_path)
-            elif path_trash:
-                await put_hook(self.session, rename_path)
-            else:
-                await move_hook(self.session, file_path, rename_path)
+            async with FileLockTransaction(SQLDepends.state, file_path):
+                async with FileLockTransaction(SQLDepends.state, rename_path):
+                    temp = await FileResolver.get_temp_from_data(file_path)
+                    rename_temp = await FileResolver.get_temp_from_data(rename_path)
+                    await shutil.move(file_path, rename_path)
+                    await shutil.move(temp, rename_temp)
+                    await FileCRAD(self.session).move(file_path, rename_path)
+                    await FileCRAD(self.session).move(temp, rename_temp)
+            await self.session.commit()
             return self.success_response()
 
+    @error_decorator
     async def copy(
         self, file_path: Path, copy_path: Path
     ) -> Union[Response, BaseModel]:
         if FileResolver.temp_path in file_path.parents:
             return self.not_allowed_response()
+        elif FileResolver.temp_path in file_path.parents:
+            return self.not_allowed_response()
         elif FileResolver.temp_path in copy_path.parents:
             return self.not_allowed_response()
+        elif FileResolver.trashbin_path in copy_path.parents:
+            return self.not_allowed_response()
         else:
-            await shutil.copyfile(file_path, copy_path)
-            path_trash = FileResolver.trashbin_path in file_path.parents
-            copy_trash = FileResolver.trashbin_path in copy_path.parents
-
-            if copy_trash:
-                pass
-            elif path_trash:
-                await put_hook(self.session, copy_path)
-            else:
-                await copy_hook(self.session, file_path, copy_path)
+            async with FileLockTransaction(SQLDepends.state, file_path):
+                async with FileLockTransaction(SQLDepends.state, copy_path):
+                    temp = await FileResolver.get_temp_from_data(file_path)
+                    copy_temp = await FileResolver.get_temp_from_data(copy_path)
+                    await shutil.copy2(file_path, copy_path)
+                    await shutil.copy2(temp, copy_temp)
+                    await FileCRAD(self.session).copy(file_path, copy_path)
+                    await FileCRAD(self.session).copy(temp, copy_temp)
+            await self.session.commit()
             return self.success_response()

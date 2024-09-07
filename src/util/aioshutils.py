@@ -3,6 +3,8 @@ import shutil
 from aiofiles.ospath import wrap
 
 copyfile = wrap(shutil.copyfile)
+copystat = wrap(shutil.copystat)
+copymode = wrap(shutil.copymode)
 copy = wrap(shutil.copy)
 copy2 = wrap(shutil.copy2)
 copytree = wrap(shutil.copytree)
