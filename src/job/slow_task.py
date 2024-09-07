@@ -18,7 +18,7 @@ async def slow_task():
     async with AsyncSession(SQLDepends.state) as session:
         task_state = select(SlowTaskORM).where(SlowTaskORM.type == "video_convert")
 
-        for (task_orm,) in (await session.execute(task_state)).all():
+        while task_orm := (await session.execute(task_state)).scalar():
             slow_task = SlowTaskModel.model_validate_orm(task_orm)
 
             file_state = select(FileORM).where(FileORM.id == str(slow_task.file_id))
@@ -67,5 +67,5 @@ async def slow_task():
                         await shutil.copy2(temp_dir, other_temp)
                         await session.delete(other_orm)
 
-                    await session.delete(task_orm)
-                await session.commit()
+            await session.delete(task_orm)
+            await session.commit()

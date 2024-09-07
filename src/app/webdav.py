@@ -1,19 +1,26 @@
+from hashlib import md5
 from logging import Logger
 from pathlib import Path
+from typing import Union
+from urllib.parse import quote
 
+from aiofiles import os
 from fastapi import APIRouter, Depends, Request, Response
-from fastapi.security import HTTPBasic
+from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
 )
 
 from src.depends.logging import LoggingDepends
 from src.depends.sql import SQLDepends
+from src.models.file import FileModel, FileORM
 from src.service.slow_task import FileService
+from src.sql.sql import escape_path
 from src.util.file import FileResolver
+from src.util.rfc1123 import RFC1123
 from src.util.xml import to_webdav
 
-security = HTTPBasic()
 router = APIRouter()
 
 
@@ -39,6 +46,143 @@ class FileServiceWebDav(FileService):
 
     def not_found_response(self):
         return Response(media_type="application/octet-stream", status_code=404)
+
+    async def get_base(self, href: Path, path: Path) -> list:
+        file_state = select(FileORM).where(
+            FileORM.filename.like(f"{escape_path(path)}%")
+        )
+        files = (await self.session.execute(file_state)).all()
+        if files:
+            quota_used_bytes = sum([x.tuple()[0].size for x in files])
+            max_modified = max([x.tuple()[0].updated_at.timestamp() for x in files])
+        else:
+            stat = await os.stat(path)
+            quota_used_bytes = stat.st_size
+            max_modified = stat.st_mtime
+        get_last_modified = RFC1123.fromtimestamp(max_modified).rfc_1123()
+        return [
+            {
+                "response": {
+                    "href": quote(href.as_posix() + "/"),
+                    "propstat": {
+                        "prop": {
+                            "getlastmodified": get_last_modified,
+                            "resourcetype": {"collection": None},
+                            "quota-used-bytes": quota_used_bytes,
+                            "quota-available-bytes": -3,
+                            "getetag": md5(href.as_posix().encode()).hexdigest(),
+                        },
+                        "status": "HTTP/1.1 200 OK",
+                    },
+                },
+            }
+        ]
+
+    async def get_file(self, href: Path, path: Path) -> Union[dict, BaseModel]:
+        if await os.path.isdir(path):
+            file_state = select(FileORM).where(
+                FileORM.filename.like(f"{escape_path(path)}%")
+            )
+            files = (await self.session.execute(file_state)).all()
+            if files:
+                quota_used_bytes = sum([x.tuple()[0].size for x in files])
+                max_modified = max([x.tuple()[0].updated_at.timestamp() for x in files])
+            else:
+                stat = await os.stat(path)
+                quota_used_bytes = stat.st_size
+                max_modified = stat.st_mtime
+
+            get_last_modified = RFC1123.fromtimestamp(max_modified).rfc_1123()
+            return {
+                "response": {
+                    "href": quote(href.as_posix() + "/"),
+                    "propstat": {
+                        "prop": {
+                            "getlastmodified": get_last_modified,
+                            "resourcetype": {"collection": None},
+                            "quota-used-bytes": quota_used_bytes,
+                            "quota-available-bytes": -3,
+                            "getetag": hash(path),
+                        },
+                        "status": "HTTP/1.1 200 OK",
+                    },
+                },
+            }
+        elif await os.path.isfile(path):
+            file_state = select(FileORM).where(FileORM.filename == str(path))
+            (file_orm,) = (await self.session.execute(file_state)).one()
+            assert isinstance(file_orm, FileORM)
+            file_model = FileModel.model_validate_orm(file_orm)
+            get_last_modified = RFC1123(file_model.updated_at).rfc_1123()
+            get_content_length = file_model.size
+            get_content_type = file_model.internet_media_type
+            return {
+                "response": {
+                    "href": quote(href.as_posix()),
+                    "propstat": {
+                        "prop": {
+                            "getlastmodified": get_last_modified,
+                            "getcontentlength": get_content_length,
+                            "resourcetype": {},
+                            "getcontenttype": get_content_type,
+                            "getetag": md5(href.as_posix().encode()).hexdigest(),
+                        },
+                        "status": "HTTP/1.1 200 OK",
+                    },
+                },
+            }
+        else:
+            raise ValueError("Invalid file path")
+
+    @FileService.error_decorator
+    async def check(self, file_path: Path) -> Union[Response, BaseModel]:
+        if await os.path.exists(file_path):
+            return self.success_response()
+        else:
+            return self.not_found_response()
+
+    @FileService.error_decorator
+    async def lock(self, file_path: Path) -> Union[Response, BaseModel]:
+        file_state = select(FileORM).where(FileORM.filename == str(file_path))
+        (file_orm,) = (await self.session.execute(file_state)).one()
+        assert isinstance(file_orm, FileORM)
+        file_model = FileModel.model_validate_orm(file_orm)
+        get_last_modified = RFC1123(file_model.updated_at).rfc_1123()
+        get_content_length = file_model.size
+        get_content_type = file_model.internet_media_type
+
+        response = {
+            "response": {
+                "href": quote(file_path.as_posix()),
+                "propstat": {
+                    "prop": {
+                        "lockdiscovery": {
+                            "activelock": {
+                                "locktype": "write",
+                                "lockscope": "exclusive",
+                                "depth": "0",
+                                "owner": "owner",
+                                "timeout": "Second-3600",
+                                "locktoken": {
+                                    "href": "urn:uuid:12345678-1234-1234-1234-123456789012"
+                                },
+                            }
+                        },
+                        "getlastmodified": get_last_modified,
+                        "getcontentlength": get_content_length,
+                        "resourcetype": {},
+                        "getcontenttype": get_content_type,
+                        "getetag": md5(file_path.as_posix().encode()).hexdigest(),
+                    },
+                    "status": "HTTP/1.1 200 OK",
+                },
+            },
+        }
+        return self.data_response(response)
+
+    @FileService.error_decorator
+    async def unlock(self, file_path: Path) -> Union[Response, BaseModel]:
+        return self.no_content_response()
 
 
 @router.api_route(
@@ -118,7 +262,8 @@ async def upload(
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
     path = await FileResolver.get_file(file_path)
-    return await FileServiceWebDav(request, logger, session).upload(path)
+    stream = request.stream()
+    return await FileServiceWebDav(request, logger, session).upload(path, stream)
 
 
 @router.api_route(

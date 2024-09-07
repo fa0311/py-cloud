@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Annotated
 
 import aiofiles.os as os
+from aiofiles import open
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import (
@@ -13,6 +14,7 @@ from src.depends.logging import LoggingDepends
 from src.depends.sql import SQLDepends
 from src.service.slow_task import FileService
 from src.util.file import FileResolver
+from src.util.stream import Stream
 
 router = APIRouter()
 
@@ -60,6 +62,18 @@ class FileServiceRest(FileService):
             get_content_type=content_type,
         )
 
+    async def read_file(self, path: Path):
+        async with open(path, "rb") as file:
+            return await file.read()
+
+
+def stream(file: UploadFile):
+    while True:
+        chunk = file.file.read(1024)
+        if not chunk:
+            break
+        yield chunk
+
 
 @router.get(
     "/list/{file_path:path}",
@@ -91,7 +105,8 @@ async def post_upload(
     session: Annotated[AsyncSession, Depends(SQLDepends.depends)],
 ):
     path = Path(file_path)
-    return await FileServiceRest(request, logger, session).upload(path)
+    stream = Stream.read(file, 0, None)
+    return await FileServiceRest(request, logger, session).upload(path, stream)
 
 
 @router.get(

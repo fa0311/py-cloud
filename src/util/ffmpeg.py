@@ -23,7 +23,7 @@ class FFmpegWrapper:
         cls.logger.info(" ".join(cmd))
         if __debug__:
             assert isinstance(stream, SyncFFmpeg)
-            return await wrap(stream.execute)()
+            return await wrap(lambda x=stream: x.execute())()
         else:
             assert isinstance(stream, AsyncFFmpeg)
             return await stream.execute()
@@ -136,6 +136,5 @@ class FFmpegVideo(FFmpegWrapper):
                 },
             )
         )
-        self.logger.info("ffmpeg " + " ".join([f'"{x}"' for x in stream.arguments[1:]]))
         await self.__class__.execute(stream)
         return output_path

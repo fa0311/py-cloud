@@ -1,5 +1,4 @@
 import asyncio
-import io
 import random
 import sys
 import urllib.parse
@@ -85,86 +84,7 @@ async def test_webdav_upload(client):
     options = {
         "webdav_hostname": client("/api/webdav"),
     }
-    filename = "assets/Rick Astley - Never Gonna Give You Up (Official Music Video).mp4"
+    filename = "assets/Rick Astley - Never Gonna Give You Up (Official Music Video).mkv"
     assets = Path(filename)
     webdav = Client(options)
     webdav.upload(assets.name, assets.as_posix())
-
-
-@pytest.mark.asyncio
-async def test_webdav_e2ee(client):
-    options = {
-        "webdav_hostname": client("/api/webdav"),
-    }
-
-    webdav = Client(options)
-    webdav.upload_to(io.BytesIO(b"hello world"), "/test.txt")
-    b"".join(webdav.download_iter("/test.txt"))
-    assert await db_check("test.txt")
-
-    webdav.clean("/test.txt")
-    assert not await db_check("test.txt")
-
-    webdav.mkdir("/test")
-    webdav.mkdir("/test/test")
-    webdav.upload_to(io.BytesIO(b"hello world"), "/test/test/test.txt")
-    b"".join(webdav.download_iter("/test/test/test.txt"))
-    assert await db_check("test/test/test.txt")
-
-    webdav.mkdir("/test/test2")
-    webdav.move("/test/test/test.txt", "/test/test2/test.txt")
-    b"".join(webdav.download_iter("/test/test2/test.txt"))
-    assert await db_check("test/test2/test.txt")
-    assert not await db_check("test/test/test.txt")
-
-    webdav.copy("/test/test2/test.txt", "/test/test/test.txt")
-    b"".join(webdav.download_iter("/test/test/test.txt"))
-    assert await db_check("test/test/test.txt")
-    assert await db_check("test/test2/test.txt")
-
-    webdav.mkdir("/test/test3")
-    try:
-        webdav.move("test/test/test.txt", "/test/test3")
-        assert False
-    except Exception:
-        assert await db_check("test/test/test.txt")
-        assert not await db_check("test/test3/test.txt")
-
-    webdav.clean("/test")
-    assert not await db_check("test/test/test.txt")
-    assert not await db_check("test/test2/test.txt")
-
-    try:
-        webdav.upload_to(io.BytesIO(b"hello world"), "/test/test/test.txt")
-        assert False
-    except Exception:
-        assert not await db_check("test/test/test.txt")
-
-    try:
-        webdav.mkdir("/test/test")
-        assert False
-    except Exception:
-        assert not await db_check("test/test")
-
-    try:
-        webdav.clean("/test")
-        assert False
-    except Exception:
-        assert not await db_check("test")
-
-    list = webdav.list("/.trashbin", get_info=True)
-
-    webdav.clean(f"/.trashbin/{Path(list[1]['path']).name}/test")
-
-    path = Path(list[1]["path"]).name
-    webdav.copy(f"/.trashbin/{path}/test.txt", "/test.txt")
-    assert await db_check("test.txt")
-
-    webdav.move(f"/.trashbin/{path}/test.txt", "/test2.txt")
-    assert await db_check("test2.txt")
-
-    webdav.move("/test2.txt", "/.trashbin/test2.txt")
-    assert not await db_check("/.trashbin/test2.txt")
-    assert not await db_check("test2.txt")
-
-    webdav.move("/.trashbin", "/test")

@@ -42,7 +42,7 @@ async def client():
 
 @pytest.mark.asyncio
 async def test_post_upload(client: AsyncClient):
-    filename = "assets/Rick Astley - Never Gonna Give You Up (Official Music Video).mp4"
+    filename = "assets/Rick Astley - Never Gonna Give You Up (Official Music Video).mkv"
     assets = Path(filename)
 
     async with open(assets, "rb") as file:

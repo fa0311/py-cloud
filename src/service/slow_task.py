@@ -1,28 +1,22 @@
-import asyncio
-from hashlib import md5
 from logging import Logger
 from pathlib import Path
-from typing import Union
-from urllib.parse import quote
+from typing import AsyncGenerator, Union
 
 from aiofiles import open, os
 from fastapi import Request, Response
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
 )
 
 from src.depends.sql import SQLDepends
-from src.models.file import FileModel, FileORM
 from src.models.slow_task import SlowTaskModel, SlowTaskORM
 from src.sql.file_crad import FileCRAD
 from src.sql.file_lock_crad import FileLockCRADError, FileLockTransaction
-from src.sql.sql import escape_path
 from src.util import aioshutils as shutil
 from src.util.file import FileResolver
-from src.util.rfc1123 import RFC1123
+from src.util.stream import Stream
 
 
 class SuccessResponse(BaseModel):
@@ -82,141 +76,10 @@ class FileService:
         return wrapper
 
     async def get_base(self, href: Path, path: Path) -> list:
-        file_state = select(FileORM).where(
-            FileORM.filename.like(f"{escape_path(path)}%")
-        )
-        files = (await self.session.execute(file_state)).all()
-        if files:
-            quota_used_bytes = sum([x.tuple()[0].size for x in files])
-            max_modified = max([x.tuple()[0].updated_at.timestamp() for x in files])
-        else:
-            stat = await os.stat(path)
-            quota_used_bytes = stat.st_size
-            max_modified = stat.st_mtime
-        get_last_modified = RFC1123.fromtimestamp(max_modified).rfc_1123()
-        return [
-            {
-                "response": {
-                    "href": quote(href.as_posix() + "/"),
-                    "propstat": {
-                        "prop": {
-                            "getlastmodified": get_last_modified,
-                            "resourcetype": {"collection": None},
-                            "quota-used-bytes": quota_used_bytes,
-                            "quota-available-bytes": -3,
-                            "getetag": md5(href.as_posix().encode()).hexdigest(),
-                        },
-                        "status": "HTTP/1.1 200 OK",
-                    },
-                },
-            }
-        ]
+        raise NotImplementedError
 
     async def get_file(self, href: Path, path: Path) -> Union[dict, BaseModel]:
-        if await os.path.isdir(path):
-            file_state = select(FileORM).where(
-                FileORM.filename.like(f"{escape_path(path)}%")
-            )
-            files = (await self.session.execute(file_state)).all()
-            if files:
-                quota_used_bytes = sum([x.tuple()[0].size for x in files])
-                max_modified = max([x.tuple()[0].updated_at.timestamp() for x in files])
-            else:
-                stat = await os.stat(path)
-                quota_used_bytes = stat.st_size
-                max_modified = stat.st_mtime
-
-            get_last_modified = RFC1123.fromtimestamp(max_modified).rfc_1123()
-            return {
-                "response": {
-                    "href": quote(href.as_posix() + "/"),
-                    "propstat": {
-                        "prop": {
-                            "getlastmodified": get_last_modified,
-                            "resourcetype": {"collection": None},
-                            "quota-used-bytes": quota_used_bytes,
-                            "quota-available-bytes": -3,
-                            "getetag": hash(path),
-                        },
-                        "status": "HTTP/1.1 200 OK",
-                    },
-                },
-            }
-        elif await os.path.isfile(path):
-            file_state = select(FileORM).where(FileORM.filename == str(path))
-            (file_orm,) = (await self.session.execute(file_state)).one()
-            assert isinstance(file_orm, FileORM)
-            file_model = FileModel.model_validate_orm(file_orm)
-            get_last_modified = RFC1123(file_model.updated_at).rfc_1123()
-            get_content_length = file_model.size
-            get_content_type = file_model.internet_media_type
-            return {
-                "response": {
-                    "href": quote(href.as_posix()),
-                    "propstat": {
-                        "prop": {
-                            "getlastmodified": get_last_modified,
-                            "getcontentlength": get_content_length,
-                            "resourcetype": {},
-                            "getcontenttype": get_content_type,
-                            "getetag": md5(href.as_posix().encode()).hexdigest(),
-                        },
-                        "status": "HTTP/1.1 200 OK",
-                    },
-                },
-            }
-        else:
-            raise ValueError("Invalid file path")
-
-    @error_decorator
-    async def check(self, file_path: Path) -> Union[Response, BaseModel]:
-        if await os.path.exists(file_path):
-            return self.success_response()
-        else:
-            return self.not_found_response()
-
-    @error_decorator
-    async def lock(self, file_path: Path) -> Union[Response, BaseModel]:
-        file_state = select(FileORM).where(FileORM.filename == str(file_path))
-        (file_orm,) = (await self.session.execute(file_state)).one()
-        assert isinstance(file_orm, FileORM)
-        file_model = FileModel.model_validate_orm(file_orm)
-        get_last_modified = RFC1123(file_model.updated_at).rfc_1123()
-        get_content_length = file_model.size
-        get_content_type = file_model.internet_media_type
-
-        response = {
-            "response": {
-                "href": quote(file_path.as_posix()),
-                "propstat": {
-                    "prop": {
-                        "lockdiscovery": {
-                            "activelock": {
-                                "locktype": "write",
-                                "lockscope": "exclusive",
-                                "depth": "0",
-                                "owner": "owner",
-                                "timeout": "Second-3600",
-                                "locktoken": {
-                                    "href": "urn:uuid:12345678-1234-1234-1234-123456789012"
-                                },
-                            }
-                        },
-                        "getlastmodified": get_last_modified,
-                        "getcontentlength": get_content_length,
-                        "resourcetype": {},
-                        "getcontenttype": get_content_type,
-                        "getetag": md5(file_path.as_posix().encode()).hexdigest(),
-                    },
-                    "status": "HTTP/1.1 200 OK",
-                },
-            },
-        }
-        return self.data_response(response)
-
-    @error_decorator
-    async def unlock(self, file_path: Path) -> Union[Response, BaseModel]:
-        return self.no_content_response()
+        raise NotImplementedError
 
     @error_decorator
     async def list(self, file_path: Path) -> Union[Response, BaseModel]:
@@ -236,7 +99,9 @@ class FileService:
             return self.not_found_response()
 
     @error_decorator
-    async def upload(self, file_path: Path) -> Union[Response, BaseModel]:
+    async def upload(
+        self, file_path: Path, stream: AsyncGenerator[bytes, None]
+    ) -> Union[Response, BaseModel]:
         if FileResolver.temp_path in file_path.parents:
             return self.not_allowed_response()
         elif FileResolver.trashbin_path in file_path.parents:
@@ -245,9 +110,8 @@ class FileService:
             return self.conflict_response()
         else:
             async with FileLockTransaction(SQLDepends.state, file_path):
-                binary_stream = self.request.stream()
                 async with open(file_path, "wb") as f:
-                    async for chunk in binary_stream:
+                    async for chunk in stream:
                         await f.write(chunk)
                 temp_dir = await FileResolver.get_temp_from_data(file_path)
                 await os.makedirs(temp_dir, exist_ok=True)
@@ -261,20 +125,6 @@ class FileService:
             await self.session.commit()
             return self.created_response()
 
-    async def stream(self, file_path: Path, start: int, end: int):
-        try:
-            async with open(file_path, "rb") as f:
-                await f.seek(start)
-                chunk_size = FileResponse.chunk_size
-                while start < end:
-                    chunk = await f.read(min(chunk_size, end - start + 1))
-                    if not chunk:
-                        break
-                    start += len(chunk)
-                    yield chunk
-        except asyncio.CancelledError:
-            pass
-
     @error_decorator
     async def download(
         self, file_path: Path
@@ -282,17 +132,19 @@ class FileService:
         if not await os.path.isfile(file_path):
             return self.not_found_response()
         elif self.request.headers.get("Range"):
+            all = await os.path.getsize(file_path)
             start, end = self.request.headers["Range"].split("=")[1].split("-")
             start = int(start) if start else 0
-            end = int(end) if end else await os.path.getsize(file_path) - 1
+            end = int(end) if end else all - 1
         else:
+            all = await os.path.getsize(file_path)
             start = 0
-            end = await os.path.getsize(file_path) - 1
+            end = all - 1
 
         return StreamingResponse(
-            self.stream(file_path, start, end),
+            Stream.read_file(file_path, start, end),
             headers={
-                "Content-Range": f"bytes {start}-{end}/{await os.path.getsize(file_path)}",
+                "Content-Range": f"bytes {start}-{end}/{all}",
                 "Accept-Ranges": "bytes",
                 "Content-Length": str(end - start + 1),
             },
@@ -312,17 +164,24 @@ class FileService:
                 if FileResolver.trashbin_path == file_path:
                     await shutil.rmtree(file_path)
                     await shutil.rmtree(temp)
+                    await FileCRAD(self.session).delete(file_path)
+                    await FileCRAD(self.session).delete(temp)
                     await os.makedirs(file_path)
                 elif await FileCRAD(self.session).is_empty(file_path):
                     await shutil.rmtree(file_path)
                     await shutil.rmtree(temp)
+                    await FileCRAD(self.session).delete(file_path)
+                    await FileCRAD(self.session).delete(temp)
                 elif FileResolver.trashbin_path in file_path.parents:
                     if await os.path.isdir(file_path):
                         await shutil.rmtree(file_path)
                         await shutil.rmtree(temp)
+                        await FileCRAD(self.session).delete(file_path)
+                        await FileCRAD(self.session).delete(temp)
                     else:
                         await os.remove(file_path)
                         await shutil.rmtree(temp)
+                        await FileCRAD(self.session).delete(file_path)
                 else:
                     trash = await FileResolver.get_trashbin_from_data(file_path)
                     temp_trash = await FileResolver.get_temp_from_data(trash)
