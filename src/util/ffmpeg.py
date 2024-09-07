@@ -1,14 +1,32 @@
 import json
+import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 
-from ffmpeg.asyncio import FFmpeg
+from ffmpeg.asyncio import FFmpeg as AsyncFFmpeg
+from ffmpeg.ffmpeg import FFmpeg as SyncFFmpeg
+
+FFmpeg = SyncFFmpeg if __debug__ else AsyncFFmpeg
 
 
 class FFmpegWrapper:
+    logger = logging.getLogger(__name__)
+
     def __init__(self, input_file: Path, ffprobe: dict[str, Any]):
         self.input_file = input_file
         self.ffprobe = ffprobe
+
+    @classmethod
+    async def execute(cls, stream: Union[SyncFFmpeg, AsyncFFmpeg]) -> bytes:
+        cmd = [stream._executable] + [f'"{x}"' for x in stream.arguments[1:]]
+        cls.logger.info(" ".join(cmd))
+        if __debug__:
+            assert isinstance(stream, SyncFFmpeg)
+            data = stream.execute()
+        else:
+            assert isinstance(stream, AsyncFFmpeg)
+            data = await stream.execute()
+        return data
 
     @classmethod
     async def from_file(cls, input_file: Path):
@@ -19,14 +37,9 @@ class FFmpegWrapper:
             .option("show_streams")
             .option("of", "json")
         )
-        try:
-            data = await stream.execute()
-            ffprobe = json.loads(data)
-        except Exception:
-            ffprobe = {
-                "format": {},
-                "streams": [],
-            }
+
+        data = await cls.execute(stream)
+        ffprobe = json.loads(data)
 
         return cls(input_file, ffprobe)
 
@@ -49,9 +62,9 @@ class FFmpegVideo(FFmpegWrapper):
         return None
 
     def get_thumbnail_stream(self):
-        for stream in self.ffprobe["streams"][1:]:
-            if stream["codec_type"] == "video":
-                return stream
+        video = [x for x in self.ffprobe["streams"] if x["codec_type"] == "video"]
+        if len(video) > 1:
+            return video[1]
         return None
 
     def check(self, width: int, bitrate: int) -> bool:
@@ -62,14 +75,15 @@ class FFmpegVideo(FFmpegWrapper):
 
         return False
 
-    async def thumbnail(self, output_dir: Path, prefix: str):
+    async def thumbnail(self, output_dir: Path, prefix: str) -> Path:
         thumbnail = self.get_thumbnail_stream()
+        output_path = output_dir.joinpath(f"thumbnail_{prefix}.png")
         if thumbnail is None:
             stream = (
                 FFmpeg()
                 .input(self.input_file.as_posix())
                 .output(
-                    output_dir.joinpath(f"thumbnail_{prefix}.png").as_posix(),
+                    output_path.as_posix(),
                     options={
                         "ss": 1,
                         "vf": "scale=320:320:force_original_aspect_ratio=decrease",
@@ -78,13 +92,12 @@ class FFmpegVideo(FFmpegWrapper):
                     },
                 )
             )
-            await stream.execute()
         else:
             stream = (
                 FFmpeg()
                 .input(self.input_file.as_posix())
                 .output(
-                    output_dir.joinpath(f"thumbnail_{prefix}.png").as_posix(),
+                    output_path.as_posix(),
                     options={
                         "map": "v:1",
                         "c": "copy",
@@ -93,8 +106,8 @@ class FFmpegVideo(FFmpegWrapper):
                     },
                 )
             )
-            print("ffmpeg" + " ".join([f'"{x}"' for x in stream.arguments[1:]]))
-            await stream.execute()
+        await self.__class__.execute(stream)
+        return output_path
 
     async def down_scale(
         self,
@@ -102,12 +115,13 @@ class FFmpegVideo(FFmpegWrapper):
         prefix: str,
         width: int,
         bitrate: int,
-    ):
+    ) -> Path:
+        output_path = output_dir.joinpath(f"hls_{prefix}{output_dir.suffix}")
         stream = (
             FFmpeg()
             .input(self.input_file.as_posix())
             .output(
-                output_dir.joinpath(f"hls_{prefix}{output_dir.suffix}").as_posix(),
+                output_path.as_posix(),
                 options={
                     "c:v": "h264_nvenc",
                     "c:a": "copy",
@@ -117,5 +131,6 @@ class FFmpegVideo(FFmpegWrapper):
                 },
             )
         )
-        print("ffmpeg " + " ".join([f'"{x}"' for x in stream.arguments[1:]]))
-        await stream.execute()
+        self.logger.info("ffmpeg " + " ".join([f'"{x}"' for x in stream.arguments[1:]]))
+        await self.__class__.execute(stream)
+        return output_path

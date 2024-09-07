@@ -23,7 +23,7 @@ def escape_path(path: Path):
     return str(path).replace("\\", "\\\\")
 
 
-async def put_hook(session: AsyncSession, file: Path):
+async def put_hook(session: AsyncSession, file: Path, slow_task: bool = True):
     ffmpeg = await FFmpegWrapper.from_file(file)
     media_info = await get_media_info(file)
     size = await os.stat(file)
@@ -44,7 +44,7 @@ async def put_hook(session: AsyncSession, file: Path):
     )
     session.add(FileORM.from_model(file_model))
 
-    if ffmpeg.is_video():
+    if ffmpeg.is_video() and slow_task:
         task_model = SlowTaskModel(type="video_convert", file_id=file_model.id)
         session.add(SlowTaskORM.from_model(task_model))
 

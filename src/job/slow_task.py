@@ -8,6 +8,7 @@ from sqlalchemy.sql import select
 from src.depends.sql import SQLDepends
 from src.models.file import FileModel, FileORM
 from src.models.slow_task import SlowTaskModel, SlowTaskORM
+from src.service.metadata import put_hook
 from src.util.ffmpeg import FFmpegVideo
 from src.util.file import FileResolver
 
@@ -33,34 +34,27 @@ async def slow_task():
                 )
                 temp_dir = await FileResolver.get_temp_from_data(file_model.filename)
 
-                if not ffmpeg.check(640, 1000):
-                    await ffmpeg.down_scale(
-                        temp_dir,
-                        prefix="video_low",
-                        width=640,
-                        bitrate=250,
-                    )
+                task = (
+                    ["video_low", 640, 1000],
+                    ["video_mid", 1280, 2000],
+                    ["video_high", 1920, 4000],
+                )
 
-                if not ffmpeg.check(1280, 2000):
-                    await ffmpeg.down_scale(
-                        temp_dir,
-                        prefix="video_mid",
-                        width=1280,
-                        bitrate=500,
-                    )
+                for prefix, x, y in task:
+                    if not ffmpeg.check(y, x):
+                        res_path = await ffmpeg.down_scale(
+                            temp_dir,
+                            prefix=prefix,
+                            width=y,
+                            bitrate=x // 4,
+                        )
+                        await put_hook(session, res_path, slow_task=False)
 
-                if not ffmpeg.check(1920, 4000):
-                    await ffmpeg.down_scale(
-                        temp_dir,
-                        prefix="video_high",
-                        width=1920,
-                        bitrate=1000,
-                    )
-
-                await ffmpeg.thumbnail(
+                res_path = await ffmpeg.thumbnail(
                     temp_dir,
                     prefix="thumbnail",
                 )
+                await put_hook(session, res_path, slow_task=False)
 
                 for (other_orm,) in task_res[1:]:
                     other_file = FileModel.model_validate_orm(other_orm)
