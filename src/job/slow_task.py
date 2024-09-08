@@ -1,5 +1,8 @@
 import shutil
+from typing import Optional
 
+from aiofiles.ospath import wrap
+from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
 )
@@ -8,6 +11,7 @@ from sqlalchemy.sql import select
 from src.depends.sql import SQLDepends
 from src.models.file import FileModel, FileORM
 from src.models.slow_task import SlowTaskModel, SlowTaskORM
+from src.service.classification import ClassificationModel, DeepDanbooruModel
 from src.sql.file_crad import FileCRAD
 from src.sql.file_lock_crad import FileLockTransaction
 from src.util.ffmpeg import FFmpegVideo
@@ -69,3 +73,31 @@ async def slow_task():
 
             await session.delete(task_orm)
             await session.commit()
+
+        task_state = select(SlowTaskORM).where(
+            or_(
+                SlowTaskORM.type == "classification",
+                SlowTaskORM.type == "classification_video",
+            )
+        )
+        model: Optional[ClassificationModel] = None
+
+        while task_orm := (await session.execute(task_state)).scalar():
+            if model is None:
+                model = await wrap(DeepDanbooruModel.load)(
+                    "https://github.com/AUTOMATIC1111/TorchDeepDanbooru/releases/download/v1/model-resnet_custom_v3.pt"
+                )
+
+            slow_task = SlowTaskModel.model_validate_orm(task_orm)
+
+            file_state = select(FileORM).where(FileORM.id == str(slow_task.file_id))
+            task_res = (await session.execute(file_state)).all()
+
+            if len(task_res) > 0:
+                (file_orm,) = task_res[0]
+
+                file_model = FileModel.model_validate_orm(file_orm)
+                async with FileLockTransaction(SQLDepends.state, file_model.filename):
+                    tags = await wrap(model.inference)(file_model.filename)
+                    file_model.data["tags"] = tags
+                    await session.commit()

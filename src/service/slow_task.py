@@ -83,7 +83,9 @@ class FileService:
 
     @error_decorator
     async def list(self, file_path: Path) -> Union[Response, BaseModel]:
-        if await os.path.isdir(file_path):
+        if FileResolver.base_path not in file_path.parents:
+            return self.not_allowed_response()
+        elif await os.path.isdir(file_path):
             responses = await self.get_base(Path(self.request.url.path), file_path)
             for file in await os.listdir(file_path.as_posix()):
                 href = Path(self.request.url.path).joinpath(file)
@@ -102,7 +104,9 @@ class FileService:
     async def upload(
         self, file_path: Path, stream: AsyncGenerator[bytes, None]
     ) -> Union[Response, BaseModel]:
-        if FileResolver.temp_path in file_path.parents:
+        if FileResolver.base_path not in file_path.parents:
+            return self.not_allowed_response()
+        elif FileResolver.temp_path in file_path.parents:
             return self.not_allowed_response()
         elif FileResolver.trashbin_path in file_path.parents:
             return self.not_allowed_response()
@@ -129,7 +133,9 @@ class FileService:
     async def download(
         self, file_path: Path
     ) -> Union[Response, BaseModel, StreamingResponse]:
-        if not await os.path.isfile(file_path):
+        if FileResolver.base_path not in file_path.parents:
+            return self.not_allowed_response()
+        elif not await os.path.isfile(file_path):
             return self.not_found_response()
         elif self.request.headers.get("Range"):
             all = await os.path.getsize(file_path)
@@ -152,7 +158,9 @@ class FileService:
 
     @error_decorator
     async def delete(self, file_path: Path) -> Union[Response, BaseModel]:
-        if FileResolver.temp_path == file_path:
+        if FileResolver.base_path not in file_path.parents:
+            return self.not_allowed_response()
+        elif FileResolver.temp_path == file_path:
             return self.not_allowed_response()
         elif FileResolver.temp_path in file_path.parents:
             return self.not_allowed_response()
@@ -194,7 +202,9 @@ class FileService:
 
     @error_decorator
     async def mkdir(self, file_path: Path) -> Union[Response, BaseModel]:
-        if FileResolver.temp_path in file_path.parents:
+        if FileResolver.base_path not in file_path.parents:
+            return self.not_allowed_response()
+        elif FileResolver.temp_path in file_path.parents:
             return self.not_allowed_response()
         elif FileResolver.trashbin_path in file_path.parents:
             return self.not_allowed_response()
@@ -211,7 +221,11 @@ class FileService:
     async def move(
         self, file_path: Path, rename_path: Path
     ) -> Union[Response, BaseModel]:
-        if FileResolver.temp_path in file_path.parents:
+        if FileResolver.base_path not in file_path.parents:
+            return self.not_allowed_response()
+        elif FileResolver.base_path not in rename_path.parents:
+            return self.not_allowed_response()
+        elif FileResolver.temp_path in file_path.parents:
             return self.not_allowed_response()
         elif FileResolver.temp_path in rename_path.parents:
             return self.not_allowed_response()
@@ -237,7 +251,11 @@ class FileService:
     async def copy(
         self, file_path: Path, copy_path: Path
     ) -> Union[Response, BaseModel]:
-        if FileResolver.temp_path in file_path.parents:
+        if FileResolver.base_path not in file_path.parents:
+            return self.not_allowed_response()
+        elif FileResolver.base_path not in copy_path.parents:
+            return self.not_allowed_response()
+        elif FileResolver.temp_path in file_path.parents:
             return self.not_allowed_response()
         elif FileResolver.temp_path in file_path.parents:
             return self.not_allowed_response()
