@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import (
 from src.depends.logging import LoggingDepends
 from src.depends.sql import SQLDepends
 from src.models.file import FileModel, FileORM
+from src.models.metadata import MetadataORM
 from src.service.slow_task import FileService
 from src.sql.sql import escape_path
 from src.util.file import FileResolver
@@ -48,13 +49,15 @@ class FileServiceWebDav(FileService):
         return Response(media_type="application/octet-stream", status_code=404)
 
     async def get_base(self, href: Path, path: Path) -> list:
-        file_state = select(FileORM).where(
-            FileORM.filename.like(f"{escape_path(path)}%")
+        file_state = (
+            select(FileORM, MetadataORM)
+            .join(MetadataORM, MetadataORM.id == FileORM.metadata_id)
+            .where(FileORM.filename.like(f"{escape_path(path)}%"))
         )
         files = (await self.session.execute(file_state)).all()
         if files:
-            quota_used_bytes = sum([x.tuple()[0].size for x in files])
-            max_modified = max([x.tuple()[0].updated_at.timestamp() for x in files])
+            quota_used_bytes = sum([x.tuple()[1].size for x in files])
+            max_modified = max([x.tuple()[1].created_at.timestamp() for x in files])
         else:
             stat = await os.stat(path)
             quota_used_bytes = stat.st_size
@@ -80,13 +83,15 @@ class FileServiceWebDav(FileService):
 
     async def get_file(self, href: Path, path: Path) -> Union[dict, BaseModel]:
         if await os.path.isdir(path):
-            file_state = select(FileORM).where(
-                FileORM.filename.like(f"{escape_path(path)}%")
+            file_state = (
+                select(FileORM, MetadataORM)
+                .join(MetadataORM, MetadataORM.id == FileORM.metadata_id)
+                .where(FileORM.filename.like(f"{escape_path(path)}%"))
             )
             files = (await self.session.execute(file_state)).all()
             if files:
-                quota_used_bytes = sum([x.tuple()[0].size for x in files])
-                max_modified = max([x.tuple()[0].updated_at.timestamp() for x in files])
+                quota_used_bytes = sum([x.tuple()[1].size for x in files])
+                max_modified = max([x.tuple()[1].created_at.timestamp() for x in files])
             else:
                 stat = await os.stat(path)
                 quota_used_bytes = stat.st_size
@@ -109,13 +114,19 @@ class FileServiceWebDav(FileService):
                 },
             }
         elif await os.path.isfile(path):
-            file_state = select(FileORM).where(FileORM.filename == str(path))
-            (file_orm,) = (await self.session.execute(file_state)).one()
-            assert isinstance(file_orm, FileORM)
+            file_state = (
+                select(FileORM, MetadataORM)
+                .join(MetadataORM, MetadataORM.id == FileORM.metadata_id)
+                .where(FileORM.filename == str(path))
+            )
+            (file_orm, metadata_orm) = (
+                (await self.session.execute(file_state)).one().tuple()
+            )
             file_model = FileModel.model_validate_orm(file_orm)
-            get_last_modified = RFC1123(file_model.updated_at).rfc_1123()
-            get_content_length = file_model.size
-            get_content_type = file_model.internet_media_type
+
+            get_last_modified = RFC1123(file_model.created_at).rfc_1123()
+            get_content_length = metadata_orm.size
+            get_content_type = metadata_orm.internet_media_type
             return {
                 "response": {
                     "href": quote(href.as_posix()),
@@ -144,12 +155,9 @@ class FileServiceWebDav(FileService):
     @FileService.error_decorator
     async def lock(self, file_path: Path) -> Union[Response, BaseModel]:
         file_state = select(FileORM).where(FileORM.filename == str(file_path))
-        (file_orm,) = (await self.session.execute(file_state)).one()
-        assert isinstance(file_orm, FileORM)
+        (file_orm,) = (await self.session.execute(file_state)).one().tuple()
         file_model = FileModel.model_validate_orm(file_orm)
-        get_last_modified = RFC1123(file_model.updated_at).rfc_1123()
-        get_content_length = file_model.size
-        get_content_type = file_model.internet_media_type
+        get_last_modified = RFC1123(file_model.created_at).rfc_1123()
 
         response = {
             "response": {
@@ -169,9 +177,7 @@ class FileServiceWebDav(FileService):
                             }
                         },
                         "getlastmodified": get_last_modified,
-                        "getcontentlength": get_content_length,
                         "resourcetype": {},
-                        "getcontenttype": get_content_type,
                         "getetag": md5(file_path.as_posix().encode()).hexdigest(),
                     },
                     "status": "HTTP/1.1 200 OK",

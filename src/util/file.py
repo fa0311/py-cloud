@@ -1,4 +1,5 @@
 import time
+import uuid
 from functools import reduce
 from pathlib import Path
 from typing import Union
@@ -9,13 +10,13 @@ import aiofiles.os as os
 
 class FileResolver:
     base_path = Path("./data/data")
-    temp_path = base_path.joinpath(".temp")
+    metadata_path = base_path.joinpath(".metadata")
     trashbin_path = base_path.joinpath(".trashbin")
 
     @staticmethod
     def set_temp():
         FileResolver.base_path = Path("data/test")
-        FileResolver.temp_path = FileResolver.base_path.joinpath(".temp")
+        FileResolver.metadata_path = FileResolver.base_path.joinpath(".metadata")
         FileResolver.trashbin_path = FileResolver.base_path.joinpath(".trashbin")
 
     @staticmethod
@@ -25,10 +26,9 @@ class FileResolver:
         return file
 
     @staticmethod
-    async def get_temp_from_data(file_path: Path) -> Path:
-        relative_file = file_path.relative_to(FileResolver.base_path)
-        temp = FileResolver.temp_path.joinpath(relative_file)
-        await os.makedirs(temp.parent, exist_ok=True)
+    async def get_metadata_from_uuid(uuid: uuid.UUID) -> Path:
+        temp = FileResolver.metadata_path.joinpath(str(uuid))
+        await os.makedirs(temp, exist_ok=True)
         return temp
 
     @staticmethod

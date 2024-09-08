@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.sql import select
 
 from src.models.file import FileModel, FileORM
+from src.models.metadata import MetadataModel, MetadataORM
 from src.service.metadata import MetadataFile
 from src.sql.sql import escape_path, sep
 
@@ -19,10 +20,20 @@ class FileCRAD:
         self.session = session
 
     async def is_empty(self, directory: Path):
-        is_directory = FileORM.directory == False  # noqa
-        equal = FileORM.filename == str(directory)
-        like = FileORM.filename.like(f"{escape_path(directory)}{sep}%")
-        file_state = select(FileORM).where(and_(is_directory, or_(equal, like)))
+        file_state = (
+            select(FileORM, MetadataORM)
+            .join(MetadataORM, MetadataORM.id == FileORM.metadata_id)
+            .where(
+                and_(
+                    MetadataORM.directory == False,  # noqa
+                    or_(
+                        FileORM.filename == str(directory),
+                        FileORM.filename.like(f"{escape_path(directory)}{sep}%"),
+                    ),
+                )
+            )
+        )
+
         return (await self.session.execute(file_state)).scalar() is None
 
     # async def is_empty(self, directory: Path):
@@ -31,21 +42,28 @@ class FileCRAD:
     #     file_state = select(FileORM).where(or_(equal, like))
     #     return (await self.session.execute(file_state)).scalar() is None
 
-    async def put(self, file: Path):
+    async def put(self, file: Path, id: uuid.UUID):
         metadata = await MetadataFile.factory(file)
-
         size = await os.stat(file)
-        file_model = FileModel(
-            filename=file,
-            size=size.st_size,
+
+        metadata_model = MetadataModel(
+            id=id,
             directory=False,
-            video=metadata.ffmpeg.is_video(),
+            size=size.st_size,
             data=metadata.to_dict(),
+            video=metadata.ffmpeg.is_video(),
             internet_media_type=metadata.get_internet_media_type(),
+            created_at=datetime.now(),
+        )
+
+        file_model = FileModel(
+            metadata_id=metadata_model.id,
+            filename=file,
         )
 
         self.session.add(FileORM.from_model(file_model))
-        return file_model
+        self.session.add(MetadataORM.from_model(metadata_model))
+        return metadata_model
 
     async def delete(self, file: Path):
         equal = FileORM.filename == str(file)
@@ -62,7 +80,7 @@ class FileCRAD:
             assert isinstance(file_orm, FileORM)
             file_model = FileModel.model_validate_orm(file_orm)
             dst_path = dst.joinpath(file_model.filename.relative_to(src))
-            file_orm.updated_at = datetime.now()
+            file_orm.created_at = datetime.now()
             file_orm.filename = str(dst_path)
 
     async def copy(self, src: Path, dst: Path):
@@ -74,5 +92,5 @@ class FileCRAD:
             dst_path = dst.joinpath(file_model.filename.relative_to(src))
             file_model.filename = dst_path
             file_model.id = uuid.uuid4()
-            file_model.updated_at = datetime.now()
+            file_model.created_at = datetime.now()
             self.session.add(FileORM.from_model(file_model))

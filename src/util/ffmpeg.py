@@ -89,9 +89,15 @@ class FFmpegVideo(FFmpegWrapper):
                 .input(self.input_file.as_posix())
                 .output(
                     output_path.as_posix(),
+                    # options={
+                    #     "ss": 1,
+                    #     "vf": "scale=320:320:force_original_aspect_ratio=decrease",
+                    #     "frames:v": 1,
+                    #     "y": None,
+                    # },
                     options={
-                        "ss": 1,
-                        "vf": "scale=320:320:force_original_aspect_ratio=decrease",
+                        "vf": "fps=1",
+                        "update": 1,
                         "frames:v": 1,
                         "y": None,
                     },

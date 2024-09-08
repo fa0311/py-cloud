@@ -1,7 +1,7 @@
 from enum import Enum
 
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class LogLevel(str, Enum):
@@ -19,9 +19,10 @@ class Environ(BaseSettings):
     def __init__(self):
         super().__init__()
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+    )
 
     HOST: str = Field(
         default="0.0.0.0",

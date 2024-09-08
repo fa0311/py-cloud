@@ -1,4 +1,4 @@
-import shutil
+import uuid
 from typing import Optional
 
 from aiofiles.ospath import wrap
@@ -9,75 +9,66 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.sql import select
 
 from src.depends.sql import SQLDepends
-from src.models.file import FileModel, FileORM
+from src.models.metadata import MetadataModel, MetadataORM
 from src.models.slow_task import SlowTaskModel, SlowTaskORM
 from src.service.classification import ClassificationModel, DeepDanbooruModel
 from src.sql.file_crad import FileCRAD
-from src.sql.file_lock_crad import FileLockTransaction
 from src.util.ffmpeg import FFmpegVideo
 from src.util.file import FileResolver
 
 
 async def slow_task():
     async with AsyncSession(SQLDepends.state) as session:
-        task_state = select(SlowTaskORM).where(SlowTaskORM.type == "video_convert")
+        task_state = (
+            select(SlowTaskORM, MetadataORM)
+            .join(MetadataORM, MetadataORM.id == SlowTaskORM.metadata_id)
+            .where(SlowTaskORM.type == "video_convert")
+        )
 
-        while task_orm := (await session.execute(task_state)).scalar():
+        while res_orm := (await session.execute(task_state)).first():
+            (task_orm, metadata_orm) = res_orm.tuple()
             slow_task = SlowTaskModel.model_validate_orm(task_orm)
+            metadata = MetadataModel.model_validate_orm(metadata_orm)
+            filename = await FileResolver.get_metadata_from_uuid(slow_task.metadata_id)
 
-            file_state = select(FileORM).where(FileORM.id == str(slow_task.file_id))
-            task_res = (await session.execute(file_state)).all()
+            ffmpeg = FFmpegVideo(
+                input_file=filename.joinpath("bin"),
+                ffprobe=metadata.data["ffprobe"],
+            )
 
-            if len(task_res) > 0:
-                (file_orm,) = task_res[0]
+            task = (
+                ["video_low", 640, 1000],
+                ["video_mid", 1280, 2000],
+                ["video_high", 1920, 4000],
+            )
 
-                file_model = FileModel.model_validate_orm(file_orm)
-                async with FileLockTransaction(SQLDepends.state, file_model.filename):
-                    ffmpeg = FFmpegVideo(
-                        input_file=file_model.filename,
-                        ffprobe=file_model.data["ffprobe"],
+            for prefix, x, y in task:
+                if not ffmpeg.check(y, x):
+                    res_path = await ffmpeg.down_scale(
+                        filename.joinpath("bin"),
+                        prefix=prefix,
+                        width=y,
+                        bitrate=x // 4,
                     )
-                    temp_dir = await FileResolver.get_temp_from_data(
-                        file_model.filename
-                    )
+                    _ = await FileCRAD(session).put(res_path, uuid.uuid4())
 
-                    task = (
-                        ["video_low", 640, 1000],
-                        ["video_mid", 1280, 2000],
-                        ["video_high", 1920, 4000],
-                    )
-
-                    for prefix, x, y in task:
-                        if not ffmpeg.check(y, x):
-                            res_path = await ffmpeg.down_scale(
-                                temp_dir,
-                                prefix=prefix,
-                                width=y,
-                                bitrate=x // 4,
-                            )
-                            await FileCRAD(session).put(res_path)
-
-                    res_path = await ffmpeg.thumbnail(
-                        temp_dir,
-                        prefix="thumbnail",
-                    )
-                    await FileCRAD(session).put(res_path)
-
-                    for (other_orm,) in task_res[1:]:
-                        other_file = FileModel.model_validate_orm(other_orm)
-                        other_temp = await FileResolver.get_temp_from_data(
-                            other_file.filename
-                        )
-                        await shutil.copy2(temp_dir, other_temp)
-                        await session.delete(other_orm)
+            res_path = await ffmpeg.thumbnail(
+                filename.joinpath("bin"),
+                prefix="thumbnail",
+            )
+            _ = await FileCRAD(session).put(res_path, uuid.uuid4())
 
             await session.delete(task_orm)
             await session.commit()
 
-        task_state = select(SlowTaskORM).where(
-            or_(
-                SlowTaskORM.type == "classification",
-                SlowTaskORM.type == "classification_video",
+        task_state = (
+            select(SlowTaskORM, MetadataORM)
+            .join(MetadataORM, MetadataORM.id == SlowTaskORM.metadata_id)
+            .where(
+                or_(
+                    SlowTaskORM.type == "classification",
+                    SlowTaskORM.type == "classification_video",
+                )
             )
         )
         model: Optional[ClassificationModel] = None
@@ -89,15 +80,3 @@ async def slow_task():
                 )
 
             slow_task = SlowTaskModel.model_validate_orm(task_orm)
-
-            file_state = select(FileORM).where(FileORM.id == str(slow_task.file_id))
-            task_res = (await session.execute(file_state)).all()
-
-            if len(task_res) > 0:
-                (file_orm,) = task_res[0]
-
-                file_model = FileModel.model_validate_orm(file_orm)
-                async with FileLockTransaction(SQLDepends.state, file_model.filename):
-                    tags = await wrap(model.inference)(file_model.filename)
-                    file_model.data["tags"] = tags
-                    await session.commit()
