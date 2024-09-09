@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from aiofiles import os
 from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -7,8 +8,9 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.sql import select
 
-from src.models.file import FileLockModel, FileLockORM
+from src.models.file_lock import FileLockModel, FileLockORM
 from src.sql.sql import escape_path, sep
+from src.util import aioshutils as shutil
 
 
 class FileLockCRADError(Exception):
@@ -36,6 +38,36 @@ class FileLockTransaction:
             await self.session.commit()
         finally:
             await self.session.close()
+
+
+class FileGuard:
+    def __init__(self, *file: Path):
+        self.file = file
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            for f in self.file:
+                if await os.path.isfile(f):
+                    await os.remove(f)
+                elif await os.path.isdir(f):
+                    await shutil.rmtree(f)
+            raise exc_val
+
+
+class FileMoveGuard:
+    def __init__(self, src: Path, dst: Path):
+        self.src = src
+        self.dst = dst
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            await shutil.move(self.dst, self.src)
 
 
 class FileLockCRAD:

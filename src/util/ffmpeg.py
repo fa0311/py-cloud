@@ -23,7 +23,7 @@ class FFmpegWrapper:
         cls.logger.info(" ".join(cmd))
         if __debug__:
             assert isinstance(stream, SyncFFmpeg)
-            return await wrap(lambda x=stream: x.execute())()
+            return await wrap(stream.execute)()
         else:
             assert isinstance(stream, AsyncFFmpeg)
             return await stream.execute()
@@ -49,7 +49,7 @@ class FFmpegWrapper:
         return cls(input_file, ffprobe)
 
     def is_video(self) -> bool:
-        return float(self.ffprobe["format"].get("duration", 0)) > 0
+        return float(self.ffprobe["format"].get("duration", 0)) > 0.1
 
 
 class FFmpegVideo(FFmpegWrapper):
@@ -123,11 +123,11 @@ class FFmpegVideo(FFmpegWrapper):
     async def down_scale(
         self,
         output_dir: Path,
-        prefix: str,
+        suffix: str,
         width: int,
         bitrate: int,
     ) -> Path:
-        output_path = output_dir.joinpath(f"hls_{prefix}{output_dir.suffix}")
+        output_path = output_dir.joinpath(f"hls_{suffix}")
         stream = (
             FFmpeg()
             .input(self.input_file.as_posix())
@@ -135,7 +135,8 @@ class FFmpegVideo(FFmpegWrapper):
                 output_path.as_posix(),
                 options={
                     "c:v": "h264_nvenc",
-                    "c:a": "copy",
+                    "c:a": "aac",
+                    "b:a": "96k",
                     "vf": f"scale={width}:-1",
                     "b:v": f"{bitrate}k",
                     "y": None,

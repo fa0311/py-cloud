@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import aiofiles.os as os
 from sqlalchemy import and_, or_
@@ -42,16 +43,18 @@ class FileCRAD:
     #     file_state = select(FileORM).where(or_(equal, like))
     #     return (await self.session.execute(file_state)).scalar() is None
 
-    async def put(self, file: Path, id: uuid.UUID):
+    async def put(self, file: Path, id: Optional[uuid.UUID] = None):
         metadata = await MetadataFile.factory(file)
         size = await os.stat(file)
 
         metadata_model = MetadataModel(
-            id=id,
+            id=id or uuid.uuid4(),
+            suffix=file.suffix,
             directory=False,
             size=size.st_size,
             data=metadata.to_dict(),
-            video=metadata.ffmpeg.is_video(),
+            video=metadata.is_video(),
+            image=metadata.is_image(),
             internet_media_type=metadata.get_internet_media_type(),
             created_at=datetime.now(),
         )

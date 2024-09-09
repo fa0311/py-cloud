@@ -38,6 +38,12 @@ class MetadataFile:
     def get_internet_media_type(self):
         return self.media_info.get("internet_media_type", "application/octet-stream")
 
+    def is_video(self):
+        return self.ffmpeg.is_video()
+
+    def is_image(self):
+        return self.pillow.get("ImageWidth", None) is not None
+
     @classmethod
     async def factory(cls, path: Path):
         return cls(

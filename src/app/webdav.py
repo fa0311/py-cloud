@@ -81,7 +81,7 @@ class FileServiceWebDav(FileService):
             }
         ]
 
-    async def get_file(self, href: Path, path: Path) -> Union[dict, BaseModel]:
+    async def get_file(self, href: Path, path: Path) -> Union[dict, BaseModel, None]:
         if await os.path.isdir(path):
             file_state = (
                 select(FileORM, MetadataORM)
@@ -119,31 +119,33 @@ class FileServiceWebDav(FileService):
                 .join(MetadataORM, MetadataORM.id == FileORM.metadata_id)
                 .where(FileORM.filename == str(path))
             )
-            (file_orm, metadata_orm) = (
-                (await self.session.execute(file_state)).one().tuple()
-            )
-            file_model = FileModel.model_validate_orm(file_orm)
+            first = (await self.session.execute(file_state)).first()
+            if first:
+                (file_orm, metadata_orm) = first.tuple()
+                file_model = FileModel.model_validate_orm(file_orm)
 
-            get_last_modified = RFC1123(file_model.created_at).rfc_1123()
-            get_content_length = metadata_orm.size
-            get_content_type = metadata_orm.internet_media_type
-            return {
-                "response": {
-                    "href": quote(href.as_posix()),
-                    "propstat": {
-                        "prop": {
-                            "getlastmodified": get_last_modified,
-                            "getcontentlength": get_content_length,
-                            "resourcetype": {},
-                            "getcontenttype": get_content_type,
-                            "getetag": md5(href.as_posix().encode()).hexdigest(),
+                get_last_modified = RFC1123(file_model.created_at).rfc_1123()
+                get_content_length = metadata_orm.size
+                get_content_type = metadata_orm.internet_media_type
+                return {
+                    "response": {
+                        "href": quote(href.as_posix()),
+                        "propstat": {
+                            "prop": {
+                                "getlastmodified": get_last_modified,
+                                "getcontentlength": get_content_length,
+                                "resourcetype": {},
+                                "getcontenttype": get_content_type,
+                                "getetag": md5(href.as_posix().encode()).hexdigest(),
+                            },
+                            "status": "HTTP/1.1 200 OK",
                         },
-                        "status": "HTTP/1.1 200 OK",
                     },
-                },
-            }
+                }
+            else:
+                return None
         else:
-            raise ValueError("Invalid file path")
+            return None
 
     @FileService.error_decorator
     async def check(self, file_path: Path) -> Union[Response, BaseModel]:

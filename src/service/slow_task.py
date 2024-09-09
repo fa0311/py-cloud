@@ -12,9 +12,15 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from src.depends.sql import SQLDepends
+from src.job.slow_task import all_classification
 from src.models.slow_task import SlowTaskModel, SlowTaskORM
 from src.sql.file_crad import FileCRAD
-from src.sql.file_lock_crad import FileLockCRADError, FileLockTransaction
+from src.sql.file_lock_crad import (
+    FileGuard,
+    FileLockCRADError,
+    FileLockTransaction,
+    FileMoveGuard,
+)
 from src.util import aioshutils as shutil
 from src.util.file import FileResolver
 from src.util.stream import Stream
@@ -81,7 +87,7 @@ class FileService:
     async def get_base(self, href: Path, path: Path) -> list:
         raise NotImplementedError
 
-    async def get_file(self, href: Path, path: Path) -> Union[dict, BaseModel]:
+    async def get_file(self, href: Path, path: Path) -> Union[dict, BaseModel, None]:
         raise NotImplementedError
 
     @error_decorator
@@ -92,14 +98,18 @@ class FileService:
             responses = await self.get_base(Path(self.request.url.path), file_path)
             for file in await os.listdir(file_path.as_posix()):
                 href = Path(self.request.url.path).joinpath(file)
-                responses.append(await self.get_file(href, file_path.joinpath(file)))
+                data = await self.get_file(href, file_path.joinpath(file))
+                if data:
+                    responses.append(data)
 
             return self.data_response(responses)
 
         elif await os.path.isfile(file_path):
             href = Path(self.request.url.path)
-            responses = [await self.get_file(href, file_path)]
-            return self.data_response(responses)
+            data = await self.get_file(href, file_path)
+            if data:
+                return self.data_response([data])
+            return self.data_response([])
         else:
             return self.not_found_response()
 
@@ -118,24 +128,28 @@ class FileService:
         else:
             id = uuid.uuid4()
             metadata = await FileResolver.get_metadata_from_uuid(id)
-            backup = metadata.joinpath("bin")
+            bin = metadata.joinpath(f"bin{file_path.suffix}")
             async with FileLockTransaction(SQLDepends.state, file_path):
-                async with open(file_path, "wb") as f:
-                    async with open(backup, "wb") as t:
-                        async for chunk in stream:
-                            await f.write(chunk)
-                            await t.write(chunk)
+                async with FileGuard(file_path, bin):
+                    async with open(file_path, "wb") as f:
+                        async with open(bin, "wb") as t:
+                            async for chunk in stream:
+                                await f.write(chunk)
+                                await t.write(chunk)
 
-            model = await FileCRAD(self.session).put(file_path, id)
-            _ = await FileCRAD(self.session).put(backup, uuid.uuid4())
-            if model.video:
-                task_model = SlowTaskModel(
-                    type="video_convert",
-                    metadata_id=model.id,
-                )
-                self.session.add(SlowTaskORM.from_model(task_model))
+            async with FileGuard(file_path, bin):
+                model = await FileCRAD(self.session).put(file_path, id)
+                _ = await FileCRAD(self.session).put(bin)
+                if model.video:
+                    task_model = SlowTaskModel(
+                        type="video_convert",
+                        metadata_id=model.id,
+                    )
+                    self.session.add(SlowTaskORM.from_model(task_model))
+                if model.image:
+                    self.session.add_all(all_classification(model.id))
 
-            await self.session.commit()
+                await self.session.commit()
             return self.created_response()
 
     @error_decorator
@@ -181,21 +195,26 @@ class FileService:
                     await shutil.rmtree(file_path)
                     await FileCRAD(self.session).delete(file_path)
                     await os.makedirs(file_path)
+                    await self.session.commit()
                 elif await FileCRAD(self.session).is_empty(file_path):
                     await shutil.rmtree(file_path)
                     await FileCRAD(self.session).delete(file_path)
+                    await self.session.commit()
                 elif FileResolver.trashbin_path in file_path.parents:
                     if await os.path.isdir(file_path):
                         await shutil.rmtree(file_path)
                         await FileCRAD(self.session).delete(file_path)
+                        await self.session.commit()
                     else:
                         await os.remove(file_path)
                         await FileCRAD(self.session).delete(file_path)
+                        await self.session.commit()
                 else:
                     trash = await FileResolver.get_trashbin_from_data(file_path)
                     await shutil.move(file_path, trash)
-                    await FileCRAD(self.session).move(file_path, trash)
-            await self.session.commit()
+                    async with FileMoveGuard(file_path, trash):
+                        await FileCRAD(self.session).move(file_path, trash)
+                        await self.session.commit()
             return self.success_response()
 
     @error_decorator
@@ -237,8 +256,9 @@ class FileService:
             async with FileLockTransaction(SQLDepends.state, file_path):
                 async with FileLockTransaction(SQLDepends.state, rename_path):
                     await shutil.move(file_path, rename_path)
-                    await FileCRAD(self.session).move(file_path, rename_path)
-            await self.session.commit()
+                    async with FileMoveGuard(file_path, rename_path):
+                        await FileCRAD(self.session).move(file_path, rename_path)
+                        await self.session.commit()
             return self.success_response()
 
     @error_decorator
@@ -258,7 +278,8 @@ class FileService:
         else:
             async with FileLockTransaction(SQLDepends.state, file_path):
                 async with FileLockTransaction(SQLDepends.state, copy_path):
-                    await shutil.copy2(file_path, copy_path)
-                    await FileCRAD(self.session).copy(file_path, copy_path)
-            await self.session.commit()
+                    async with FileGuard(copy_path):
+                        await shutil.copy2(file_path, copy_path)
+                        await FileCRAD(self.session).copy(file_path, copy_path)
+                        await self.session.commit()
             return self.success_response()

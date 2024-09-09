@@ -38,14 +38,3 @@ class FileModel(ModelBase):
     # internet_media_type: str = Field(default="application/octet-stream")
     created_at: datetime = Field(default_factory=datetime.now)
     # updated_at: datetime = Field(default_factory=datetime.now)
-
-
-class FileLockORM(SQLBase, ORMMixin):
-    __tablename__ = "file_lock"
-    id: Mapped[str] = mapped_column(CHAR(36), primary_key=True)
-    filename: Mapped[str] = mapped_column(String(255), nullable=False)
-
-
-class FileLockModel(ModelBase):
-    id: uuid.UUID = Field(default_factory=uuid.uuid4)
-    filename: Path = Field()

@@ -6,7 +6,10 @@ import numpy as np
 import torch
 from httpx import URL
 from PIL import Image
-from transformers import AutoImageProcessor, AutoModelForImageClassification
+from transformers import (
+    AutoImageProcessor,
+    AutoModelForImageClassification,
+)
 
 from submodule.TorchDeepDanbooru import deep_danbooru_model
 
@@ -24,11 +27,17 @@ class ClassificationModel:
     def load(cls, source: str) -> "ClassificationModel":
         raise NotImplementedError
 
-    def inference(self, filename: str) -> list[int]:
+    def classify(self, filename: str) -> list[int]:
         raise NotImplementedError
 
 
-class DeepDanbooruModel(ClassificationModel):
+def __del__(self):
+    del self.model
+    del self.processor
+    torch.cuda.empty_cache()
+
+
+class DeepDanbooruClassificationModel(ClassificationModel):
     @classmethod
     def load(cls, source: str):
         url = URL(source)
@@ -48,7 +57,7 @@ class DeepDanbooruModel(ClassificationModel):
 
         return cls(model.tags, model)
 
-    def inference(self, filename: str) -> list[int]:
+    def classify(self, filename: str) -> list[int]:
         pic = Image.open(filename).convert("RGB").resize((512, 512))
         a = np.expand_dims(np.array(pic, dtype=np.float32), 0) / 255
 
@@ -64,7 +73,7 @@ class DeepDanbooruModel(ClassificationModel):
             return tag[0].tolist() + [(y.size - 3 + safe_key)]
 
 
-class TransformersModel(ClassificationModel):
+class ImageClassificationModel(ClassificationModel):
     @classmethod
     def load(cls, source: str):
         model = AutoModelForImageClassification.from_pretrained(
@@ -78,12 +87,10 @@ class TransformersModel(ClassificationModel):
         )
         return cls(model.config.id2label, model, processor)
 
-    def inference(self, filename: str) -> list[int]:
+    def classify(self, filename: str) -> list[int]:
         inputs = self.processor(images=Image.open(filename), return_tensors="pt")
         with torch.no_grad():
             outputs = self.model(pixel_values=inputs.pixel_values.to(self.device))
         logits = outputs.logits
 
-        _, indices = torch.topk(logits, 5, dim=1)
-        res = indices[0].tolist()
-        return res
+        return [logits.argmax(-1).item()]
