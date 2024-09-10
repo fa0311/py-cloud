@@ -1,43 +1,36 @@
 from logging import Logger
 from pathlib import Path
 from typing import Annotated, Union
-from urllib.parse import quote
 
-import aiofiles.os as os
 from aiofiles import open
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
 )
 
+from models.response import DirectoryResponseModel, FileResponseModel
 from src.depends.logging import LoggingDepends
 from src.depends.sql import SQLDepends
-from src.models.file import FileORM
-from src.models.metadata import MetadataORM
 from src.service.slow_task import FileService
 from src.sql.file_crad import FileCRAD
-from src.sql.sql import escape_path, sep
-from src.util.rfc1123 import RFC1123
 from src.util.stream import Stream
 
 router = APIRouter()
 
 
-class SuccessResponse(BaseModel):
-    success: bool = True
+class FileResponse(BaseModel):
+    dir: DirectoryResponseModel
+    child: list[Union[DirectoryResponseModel, FileResponseModel]]
 
 
-class DirectoryResponse(BaseModel):
-    href: str
-    get_last_modified: str
-    quota_used_bytes: int
+class ResponseStatus(BaseModel):
+    status: str
 
 
 class FileServiceRest(FileService):
     def success_response(self):
-        return SuccessResponse()
+        return ResponseStatus(status="success")
 
     def data_response(self, data: BaseModel):
         return data
@@ -54,54 +47,25 @@ class FileServiceRest(FileService):
     async def get_base(self, href: Path, path: Path) -> list:
         return []
 
-    async def get_file(self, href: Path, path: Path) -> Union[DirectoryResponse, None]:
-        if await FileCRAD(self.session).isdir(path):
-            file_state = (
-                select(FileORM, MetadataORM)
-                .join(MetadataORM, MetadataORM.id == FileORM.metadata_id)
-                .where(FileORM.filename.like(f"{escape_path(path)}{sep}%"))
-            )
-            files = (await self.session.execute(file_state)).all()
-            if files:
-                quota_used_bytes = sum([x.tuple()[1].size for x in files])
-                max_modified = max([x.tuple()[1].created_at.timestamp() for x in files])
-            else:
-                stat = await os.stat(path)
-                quota_used_bytes = stat.st_size
-                max_modified = stat.st_mtime
-
-            get_last_modified = RFC1123.fromtimestamp(max_modified).rfc_1123()
-            return DirectoryResponse(
-                href=quote(href.as_posix()),
-                get_last_modified=get_last_modified,
-                quota_used_bytes=quota_used_bytes,
-            )
-        elif await FileCRAD(self.session).isfile(path):
-            file_state = (
-                select(FileORM, MetadataORM)
-                .join(MetadataORM, MetadataORM.id == FileORM.metadata_id)
-                .where(FileORM.filename == str(path))
-            )
-            first = (await self.session.execute(file_state)).first()
-            if first:
-                metadata = first.tuple()[1]
-                get_last_modified = RFC1123.fromtimestamp(
-                    metadata.created_at.timestamp()
-                ).rfc_1123()
-
-                return DirectoryResponse(
-                    href=quote(href.as_posix()),
-                    get_last_modified=get_last_modified,
-                    quota_used_bytes=metadata.size,
-                )
-            else:
-                return None
-        else:
-            return None
-
     async def read_file(self, path: Path):
         async with open(path, "rb") as file:
             return await file.read()
+
+    async def get_dir(self, file_path: Path):
+        dir = await FileCRAD(self.session).getdir(file_path)
+        res = []
+        for file in await FileCRAD(self.session).listdir(file_path):
+            if file.directory:
+                data = await FileCRAD(self.session).getdir(file.filename)
+                res.append(data)
+            else:
+                data = await FileCRAD(self.session).getfile(file.filename)
+                res.append(data)
+        model = FileResponse(dir=dir, child=res)
+        return self.data_response(model)
+
+    async def get_file(self, file_path: Path):
+        return self.not_found_response()
 
 
 def stream(file: UploadFile):

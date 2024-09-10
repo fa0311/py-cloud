@@ -84,10 +84,10 @@ class FileService:
 
         return wrapper
 
-    async def get_base(self, href: Path, path: Path) -> list:
+    async def get_dir(self, file_path: Path) -> Union[Response, BaseModel]:
         raise NotImplementedError
 
-    async def get_file(self, href: Path, path: Path) -> Union[dict, BaseModel, None]:
+    async def get_file(self, file_path: Path) -> Union[Response, BaseModel]:
         raise NotImplementedError
 
     @error_decorator
@@ -95,21 +95,9 @@ class FileService:
         if FileResolver.base_path not in file_path.joinpath("..").parents:
             return self.not_allowed_response()
         elif await FileCRAD(self.session).isdir(file_path):
-            responses = await self.get_base(Path(self.request.url.path), file_path)
-            for file in await os.listdir(file_path.as_posix()):
-                href = Path(self.request.url.path).joinpath(file)
-                data = await self.get_file(href, file_path.joinpath(file))
-                if data:
-                    responses.append(data)
-
-            return self.data_response(responses)
-
+            return await self.get_dir(file_path)
         elif await FileCRAD(self.session).isfile(file_path):
-            href = Path(self.request.url.path)
-            data = await self.get_file(href, file_path)
-            if data:
-                return self.data_response([data])
-            return self.data_response([])
+            return await self.get_file(file_path)
         else:
             return self.not_found_response()
 
@@ -162,24 +150,26 @@ class FileService:
             return self.not_allowed_response()
         elif not await FileCRAD(self.session).isfile(file_path):
             return self.not_found_response()
-        elif self.request.headers.get("Range"):
-            all = await FileCRAD(self.session).getsize(file_path)
-            start, end = self.request.headers["Range"].split("=")[1].split("-")
-            start = int(start) if start else 0
-            end = int(end) if end else all - 1
         else:
-            all = await FileCRAD(self.session).getsize(file_path)
-            start = 0
-            end = all - 1
+            if self.request.headers.get("Range"):
+                file = await FileCRAD(self.session).getfile(file_path)
+                start, end = self.request.headers["Range"].split("=")[1].split("-")
+                start = int(start) if start else 0
+                end = int(end) if end else file.metadata.size - 1
+            else:
+                file = await FileCRAD(self.session).getfile(file_path)
+                start = 0
+                end = file.metadata.size - 1
 
-        return StreamingResponse(
-            Stream.read_file(file_path, start, end),
-            headers={
-                "Content-Range": f"bytes {start}-{end}/{all}",
-                "Accept-Ranges": "bytes",
-                "Content-Length": str(end - start + 1),
-            },
-        )
+            return StreamingResponse(
+                Stream.read_file(file_path, start, end),
+                headers={
+                    "Content-Range": f"bytes {start}-{end}/{file.metadata.size}",
+                    "Accept-Ranges": "bytes",
+                    "Content-Length": str(end - start + 1),
+                    "Content-Type": file.metadata.internet_media_type,
+                },
+            )
 
     @error_decorator
     async def delete(self, file_path: Path) -> Union[Response, BaseModel]:
@@ -214,6 +204,7 @@ class FileService:
                 else:
                     exists = FileCRAD(self.session).exists
                     trash = await FileResolver.get_trashbin_from_data(file_path, exists)
+                    await os.makedirs(trash.parent)
                     await FileCRAD(self.session).mkdir(trash.parent)
                     await shutil.move(file_path, trash)
                     async with FileMoveGuard(file_path, trash):

@@ -62,7 +62,9 @@ async def client():
 @pytest.mark.asyncio
 async def test_webdav_list(client):
     options = {
-        "webdav_hostname": client("/api/webdav"),
+        "webdav_hostname": "https://xn--p8jr3f0f.xn--w8j2f.com/remote.php/dav/files/yuki",
+        "webdav_login": "yuki",
+        "webdav_password": "2742756love",
     }
     webdav = Client(options)
     res = webdav.list("/", get_info=True)

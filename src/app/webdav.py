@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Union
 from urllib.parse import quote
 
-from aiofiles import os
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -15,10 +14,9 @@ from sqlalchemy.ext.asyncio import (
 from src.depends.logging import LoggingDepends
 from src.depends.sql import SQLDepends
 from src.models.file import FileModel, FileORM
-from src.models.metadata import MetadataORM
+from src.models.response import DirectoryResponseModel, FileResponseModel
 from src.service.slow_task import FileService
 from src.sql.file_crad import FileCRAD
-from src.sql.sql import escape_path
 from src.util.file import FileResolver
 from src.util.rfc1123 import RFC1123
 from src.util.xml import to_webdav
@@ -49,104 +47,71 @@ class FileServiceWebDav(FileService):
     def not_found_response(self):
         return Response(media_type="application/octet-stream", status_code=404)
 
-    async def get_base(self, href: Path, path: Path) -> list:
-        file_state = (
-            select(FileORM, MetadataORM)
-            .join(MetadataORM, MetadataORM.id == FileORM.metadata_id)
-            .where(FileORM.filename.like(f"{escape_path(path)}%"))
-        )
-        files = (await self.session.execute(file_state)).all()
-        if files:
-            quota_used_bytes = sum([x.tuple()[1].size for x in files])
-            max_modified = max([x.tuple()[1].created_at.timestamp() for x in files])
+    def dir_to_json(self, file: DirectoryResponseModel):
+        getetag = md5(file.file.filename.as_posix().encode()).hexdigest()
+        resolve = file.file.filename.relative_to(FileResolver.base_path)
+        baseurl = FileResolver.get_base_url(Path(self.request.url.path), resolve)
+        if Path(self.request.url.path).relative_to(baseurl) == resolve:
+            href = baseurl.joinpath(resolve)
         else:
-            stat = await os.stat(path)
-            quota_used_bytes = stat.st_size
-            max_modified = stat.st_mtime
-        get_last_modified = RFC1123.fromtimestamp(max_modified).rfc_1123()
-        return [
-            {
-                "response": {
-                    "href": quote(href.as_posix() + "/"),
-                    "propstat": {
-                        "prop": {
-                            "getlastmodified": get_last_modified,
-                            "resourcetype": {"collection": None},
-                            "quota-used-bytes": quota_used_bytes,
-                            "quota-available-bytes": -3,
-                            "getetag": md5(href.as_posix().encode()).hexdigest(),
-                        },
-                        "status": "HTTP/1.1 200 OK",
+            href = Path(self.request.url.path).joinpath(file.file.filename.name)
+
+        return {
+            "response": {
+                "href": quote(href.as_posix() + "/"),
+                "propstat": {
+                    "prop": {
+                        "getlastmodified": RFC1123(file.file.created_at).rfc_1123(),
+                        "resourcetype": {"collection": None},
+                        "quota-used-bytes": file.size,
+                        "quota-available-bytes": -3,
+                        "getetag": getetag,
                     },
+                    "status": "HTTP/1.1 200 OK",
                 },
-            }
-        ]
+            },
+        }
 
-    async def get_file(self, href: Path, path: Path) -> Union[dict, BaseModel, None]:
-        if await FileCRAD(self.session).isdir(path):
-            file_state = (
-                select(FileORM, MetadataORM)
-                .join(MetadataORM, MetadataORM.id == FileORM.metadata_id)
-                .where(FileORM.filename.like(f"{escape_path(path)}%"))
-            )
-            files = (await self.session.execute(file_state)).all()
-            if files:
-                quota_used_bytes = sum([x.tuple()[1].size for x in files])
-                max_modified = max([x.tuple()[1].created_at.timestamp() for x in files])
-            else:
-                stat = await os.stat(path)
-                quota_used_bytes = stat.st_size
-                max_modified = stat.st_mtime
-
-            get_last_modified = RFC1123.fromtimestamp(max_modified).rfc_1123()
-            return {
-                "response": {
-                    "href": quote(href.as_posix() + "/"),
-                    "propstat": {
-                        "prop": {
-                            "getlastmodified": get_last_modified,
-                            "resourcetype": {"collection": None},
-                            "quota-used-bytes": quota_used_bytes,
-                            "quota-available-bytes": -3,
-                            "getetag": hash(path),
-                        },
-                        "status": "HTTP/1.1 200 OK",
-                    },
-                },
-            }
-        elif await FileCRAD(self.session).isfile(path):
-            file_state = (
-                select(FileORM, MetadataORM)
-                .join(MetadataORM, MetadataORM.id == FileORM.metadata_id)
-                .where(FileORM.filename == str(path))
-            )
-            first = (await self.session.execute(file_state)).first()
-            if first:
-                (file_orm, metadata_orm) = first.tuple()
-                file_model = FileModel.model_validate_orm(file_orm)
-
-                get_last_modified = RFC1123(file_model.created_at).rfc_1123()
-                get_content_length = metadata_orm.size
-                get_content_type = metadata_orm.internet_media_type
-                return {
-                    "response": {
-                        "href": quote(href.as_posix()),
-                        "propstat": {
-                            "prop": {
-                                "getlastmodified": get_last_modified,
-                                "getcontentlength": get_content_length,
-                                "resourcetype": {},
-                                "getcontenttype": get_content_type,
-                                "getetag": md5(href.as_posix().encode()).hexdigest(),
-                            },
-                            "status": "HTTP/1.1 200 OK",
-                        },
-                    },
-                }
-            else:
-                return None
+    def file_to_json(self, file: FileResponseModel):
+        getetag = md5(file.file.filename.as_posix().encode()).hexdigest()
+        resolve = file.file.filename.relative_to(FileResolver.base_path)
+        baseurl = FileResolver.get_base_url(Path(self.request.url.path), resolve)
+        if Path(self.request.url.path).relative_to(baseurl) == resolve:
+            href = baseurl.joinpath(resolve)
         else:
-            return None
+            href = Path(self.request.url.path).joinpath(file.file.filename.name)
+        return {
+            "response": {
+                "href": quote(href.as_posix()),
+                "propstat": {
+                    "prop": {
+                        "getlastmodified": RFC1123(file.file.created_at).rfc_1123(),
+                        "getcontentlength": file.metadata.size,
+                        "resourcetype": {},
+                        "getcontenttype": file.metadata.internet_media_type,
+                        "getetag": getetag,
+                    },
+                    "status": "HTTP/1.1 200 OK",
+                },
+            },
+        }
+
+    async def get_dir(self, file_path: Path):
+        dir = await FileCRAD(self.session).getdir(file_path)
+        res = [self.dir_to_json(dir)]
+        for file in await FileCRAD(self.session).listdir(file_path):
+            if file.directory:
+                data = await FileCRAD(self.session).getdir(file.filename)
+                res.append(self.dir_to_json(data))
+            else:
+                data = await FileCRAD(self.session).getfile(file.filename)
+                res.append(self.file_to_json(data))
+
+        return self.data_response(res)
+
+    async def get_file(self, file_path: Path):
+        file = await FileCRAD(self.session).getfile(file_path)
+        return self.data_response([self.file_to_json(file)])
 
     @FileService.error_decorator
     async def check(self, file_path: Path) -> Union[Response, BaseModel]:

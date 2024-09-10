@@ -18,6 +18,7 @@ class FileORM(SQLBase, ORMMixin):
     metadata_id: Mapped[str] = mapped_column(CHAR(36), nullable=False)
     directory: Mapped[bool] = mapped_column(Boolean, nullable=False)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    pearent: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
@@ -26,4 +27,5 @@ class FileModel(ModelBase):
     metadata_id: uuid.UUID = Field()
     directory: bool = Field()
     filename: Path = Field()
+    pearent: Path = Field()
     created_at: datetime = Field(default_factory=datetime.now)
