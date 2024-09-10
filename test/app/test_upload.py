@@ -31,7 +31,7 @@ async def client():
     app = FastAPI(root_path=env.ROOT_PATH)
     init_fastapi(app)
 
-    LoggingDepends.init(path=Path("logs/testing.log"))
+    await LoggingDepends.init(path=Path("logs/testing.log"))
 
     port = random.randint(8000, 9000)
     transport = ASGITransport(app=app)

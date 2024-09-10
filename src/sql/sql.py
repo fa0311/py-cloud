@@ -2,6 +2,9 @@ from os import sep as _sep
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy.orm import (
+    DeclarativeBase,
+)
 
 
 def escape_path(path: Path) -> str:
@@ -9,6 +12,10 @@ def escape_path(path: Path) -> str:
 
 
 sep = _sep.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+class SQLBase(DeclarativeBase):
+    pass
 
 
 class ORMMixin:

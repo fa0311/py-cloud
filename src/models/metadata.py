@@ -8,15 +8,13 @@ from sqlalchemy.orm import (
     mapped_column,
 )
 
-from src.depends.sql import SQLBase
-from src.sql.sql import ModelBase, ORMMixin
+from src.sql.sql import ModelBase, ORMMixin, SQLBase
 
 
 class MetadataORM(SQLBase, ORMMixin):
     __tablename__ = "metadata"
     id: Mapped[str] = mapped_column(CHAR(36), primary_key=True)
     suffix: Mapped[str] = mapped_column(String(255), nullable=False)
-    directory: Mapped[bool] = mapped_column(Boolean, nullable=False)
     size: Mapped[int] = mapped_column(Integer, nullable=False)
     data: Mapped[str] = mapped_column(JSON, nullable=False)
     video: Mapped[bool] = mapped_column(Boolean, nullable=False)
@@ -28,7 +26,6 @@ class MetadataORM(SQLBase, ORMMixin):
 class MetadataModel(ModelBase):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
     suffix: str = Field()
-    directory: bool = Field()
     size: int = Field()
     data: dict = Field(default_factory=dict)
     video: bool = Field()

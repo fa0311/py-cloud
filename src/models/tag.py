@@ -8,8 +8,7 @@ from sqlalchemy.orm import (
     mapped_column,
 )
 
-from src.depends.sql import SQLBase
-from src.sql.sql import ModelBase, ORMMixin
+from src.sql.sql import ModelBase, ORMMixin, SQLBase
 
 
 class TagORM(SQLBase, ORMMixin):

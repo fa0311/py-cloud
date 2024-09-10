@@ -94,7 +94,7 @@ class FileService:
     async def list(self, file_path: Path) -> Union[Response, BaseModel]:
         if FileResolver.base_path not in file_path.joinpath("..").parents:
             return self.not_allowed_response()
-        elif await os.path.isdir(file_path):
+        elif await FileCRAD(self.session).isdir(file_path):
             responses = await self.get_base(Path(self.request.url.path), file_path)
             for file in await os.listdir(file_path.as_posix()):
                 href = Path(self.request.url.path).joinpath(file)
@@ -104,7 +104,7 @@ class FileService:
 
             return self.data_response(responses)
 
-        elif await os.path.isfile(file_path):
+        elif await FileCRAD(self.session).isfile(file_path):
             href = Path(self.request.url.path)
             data = await self.get_file(href, file_path)
             if data:
@@ -123,11 +123,13 @@ class FileService:
             return self.not_allowed_response()
         elif FileResolver.trashbin_path in file_path.parents:
             return self.not_allowed_response()
-        elif await os.path.exists(file_path):
+        elif await FileCRAD(self.session).exists(file_path):
             return self.conflict_response()
         else:
             id = uuid.uuid4()
             metadata = await FileResolver.get_metadata_from_uuid(id)
+            await os.makedirs(metadata)
+            await FileCRAD(self.session).mkdir(metadata)
             bin = metadata.joinpath(f"bin{file_path.suffix}")
             async with FileLockTransaction(SQLDepends.state, file_path):
                 async with FileGuard(file_path, bin):
@@ -158,15 +160,15 @@ class FileService:
     ) -> Union[Response, BaseModel, StreamingResponse]:
         if FileResolver.base_path not in file_path.joinpath("..").parents:
             return self.not_allowed_response()
-        elif not await os.path.isfile(file_path):
+        elif not await FileCRAD(self.session).isfile(file_path):
             return self.not_found_response()
         elif self.request.headers.get("Range"):
-            all = await os.path.getsize(file_path)
+            all = await FileCRAD(self.session).getsize(file_path)
             start, end = self.request.headers["Range"].split("=")[1].split("-")
             start = int(start) if start else 0
             end = int(end) if end else all - 1
         else:
-            all = await os.path.getsize(file_path)
+            all = await FileCRAD(self.session).getsize(file_path)
             start = 0
             end = all - 1
 
@@ -187,30 +189,32 @@ class FileService:
             return self.not_allowed_response()
         elif FileResolver.metadata_path in file_path.parents:
             return self.not_allowed_response()
-        elif not await os.path.exists(file_path):
+        elif not await FileCRAD(self.session).exists(file_path):
             return self.not_found_response()
         else:
             async with FileLockTransaction(SQLDepends.state, file_path):
                 if FileResolver.trashbin_path == file_path:
+                    await FileCRAD(self.session).empty(file_path)
+                    await self.session.commit()
                     await shutil.rmtree(file_path)
-                    await FileCRAD(self.session).delete(file_path)
                     await os.makedirs(file_path)
-                    await self.session.commit()
-                elif await FileCRAD(self.session).is_empty(file_path):
-                    await shutil.rmtree(file_path)
+                elif await FileCRAD(self.session).isempty(file_path):
                     await FileCRAD(self.session).delete(file_path)
                     await self.session.commit()
+                    await shutil.rmtree(file_path)
                 elif FileResolver.trashbin_path in file_path.parents:
-                    if await os.path.isdir(file_path):
+                    if await FileCRAD(self.session).isdir(file_path):
+                        await FileCRAD(self.session).delete(file_path)
+                        await self.session.commit()
                         await shutil.rmtree(file_path)
-                        await FileCRAD(self.session).delete(file_path)
-                        await self.session.commit()
                     else:
-                        await os.remove(file_path)
                         await FileCRAD(self.session).delete(file_path)
                         await self.session.commit()
+                        await os.remove(file_path)
                 else:
-                    trash = await FileResolver.get_trashbin_from_data(file_path)
+                    exists = FileCRAD(self.session).exists
+                    trash = await FileResolver.get_trashbin_from_data(file_path, exists)
+                    await FileCRAD(self.session).mkdir(trash.parent)
                     await shutil.move(file_path, trash)
                     async with FileMoveGuard(file_path, trash):
                         await FileCRAD(self.session).move(file_path, trash)
@@ -226,12 +230,15 @@ class FileService:
         elif FileResolver.trashbin_path in file_path.parents:
             return self.not_allowed_response()
         else:
-            if await os.path.exists(file_path):
+            if await FileCRAD(self.session).exists(file_path):
                 return self.conflict_response()
-            if not await os.path.isdir(file_path.parent):
+            elif not await FileCRAD(self.session).isdir(file_path.parent):
                 return self.not_allowed_response()
-
-            await os.makedirs(file_path)
+            else:
+                async with FileGuard(file_path):
+                    await os.makedirs(file_path)
+                    await FileCRAD(self.session).mkdir(file_path)
+                    await self.session.commit()
             return self.success_response()
 
     @error_decorator
@@ -248,9 +255,9 @@ class FileService:
             return self.not_allowed_response()
         elif FileResolver.trashbin_path in rename_path.parents:
             return self.not_allowed_response()
-        elif not await os.path.exists(file_path):
+        elif not await FileCRAD(self.session).exists(file_path):
             return self.conflict_response()
-        elif await os.path.exists(rename_path):
+        elif await FileCRAD(self.session).exists(rename_path):
             return self.conflict_response()
         else:
             async with FileLockTransaction(SQLDepends.state, file_path):
@@ -275,6 +282,10 @@ class FileService:
             return self.not_allowed_response()
         elif FileResolver.trashbin_path in copy_path.parents:
             return self.not_allowed_response()
+        elif not await FileCRAD(self.session).exists(file_path):
+            return self.conflict_response()
+        elif await FileCRAD(self.session).exists(copy_path):
+            return self.conflict_response()
         else:
             async with FileLockTransaction(SQLDepends.state, file_path):
                 async with FileLockTransaction(SQLDepends.state, copy_path):

@@ -2,10 +2,8 @@ import time
 import uuid
 from functools import reduce
 from pathlib import Path
-from typing import Union
+from typing import Awaitable, Callable, Union
 from urllib.parse import unquote, urlparse
-
-import aiofiles.os as os
 
 
 class FileResolver:
@@ -22,33 +20,34 @@ class FileResolver:
     @staticmethod
     async def get_file(file_path: Union[str, Path]) -> Path:
         file = FileResolver.base_path.joinpath(file_path)
-        await os.makedirs(file.parent, exist_ok=True)
         return file
 
     @staticmethod
     async def get_metadata_from_uuid(uuid: uuid.UUID) -> Path:
         temp = FileResolver.metadata_path.joinpath(str(uuid))
-        await os.makedirs(temp, exist_ok=True)
         return temp
 
     @staticmethod
-    async def __get_trashbin(file_path: Union[str, Path]) -> Path:
+    async def __get_trashbin(
+        file_path: Union[str, Path], exists: Callable[[Path], Awaitable[bool]]
+    ) -> Path:
         timestamp = time.strftime("%Y-%m-%d", time.localtime())
         trash_dir = FileResolver.trashbin_path.joinpath(timestamp)
 
         count = 0
-        while await os.path.exists(trash_dir):
+        while await exists(trash_dir):
             trash_dir = FileResolver.trashbin_path.joinpath(f"{timestamp}-{count:04d}")
             count += 1
 
         trashbin = trash_dir.joinpath(file_path)
-        await os.makedirs(trashbin.parent, exist_ok=True)
         return trashbin
 
     @staticmethod
-    async def get_trashbin_from_data(file_path: Path) -> Path:
+    async def get_trashbin_from_data(
+        file_path: Path, exists: Callable[[Path], Awaitable[bool]]
+    ) -> Path:
         relative_file = file_path.relative_to(FileResolver.base_path)
-        return await FileResolver.__get_trashbin(relative_file)
+        return await FileResolver.__get_trashbin(relative_file, exists)
 
     @staticmethod
     def get_base_url(pearent: Path, child: Path) -> Path:
@@ -61,10 +60,3 @@ class FileResolver:
         url_path = Path(unquote(urlparse(url).path))
         rename = await FileResolver.get_file(url_path.relative_to(baseurl))
         return rename
-
-    @staticmethod
-    async def get_content_type(path: Path):
-        if await os.path.isdir(path):
-            return "httpd/unix-directory"
-        else:
-            return "application/octet-stream"

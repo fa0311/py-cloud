@@ -3,6 +3,7 @@ import os
 from logging import Logger, handlers
 from pathlib import Path
 
+import aiofiles.os as os
 from coloredlogs import ColoredFormatter
 
 from src.models.environ import Environ
@@ -12,12 +13,12 @@ class LoggingDepends:
     state: Logger
 
     @staticmethod
-    def init(path: Path):
+    async def init(path: Path):
         env = Environ()
         fmt = "[%(levelname)s] %(asctime)s [%(name)s][%(filename)s:%(lineno)d] %(message)s"
         level = env.LOG_LEVEL.value
 
-        os.makedirs(path.parent, exist_ok=True)
+        await os.makedirs(path.parent, exist_ok=True)
         file_handler = handlers.TimedRotatingFileHandler(
             filename=path,
             when="D",

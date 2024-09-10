@@ -40,7 +40,7 @@ async def cleanup():
 
 @pytest_asyncio.fixture(scope="session")
 async def client():
-    LoggingDepends.init(path=Path("logs/test.log"))
+    await LoggingDepends.init(path=Path("logs/test.log"))
     port = random.randint(8000, 9000)
     process = await asyncio.create_subprocess_exec(
         sys.executable,

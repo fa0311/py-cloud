@@ -16,7 +16,7 @@ from src.util.file import FileResolver
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    LoggingDepends.init(path=Path("logs/main.log"))
+    await LoggingDepends.init(path=Path("logs/main.log"))
     await SQLDepends.start()
     await Job.start()
     yield
@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
 @asynccontextmanager
 async def test_lifespan(app: FastAPI):
     FileResolver.set_temp()
-    LoggingDepends.init(path=Path("logs/testing.log"))
+    await LoggingDepends.init(path=Path("logs/testing.log"))
     await SQLDepends.test(drop_all=True)
     await Job.start()
     yield
@@ -48,12 +48,9 @@ def init_fastapi(app: FastAPI):
 
 
 env = Environ()
-if env.TESTING:
-    app = FastAPI(lifespan=test_lifespan, root_path=env.ROOT_PATH)
-    init_fastapi(app)
-else:
-    app = FastAPI(lifespan=lifespan, root_path=env.ROOT_PATH)
-    init_fastapi(app)
+life = lifespan if not env.TESTING else test_lifespan
+app = FastAPI(lifespan=life, root_path=env.ROOT_PATH)
+init_fastapi(app)
 
 
 if __name__ == "__main__":

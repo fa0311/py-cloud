@@ -17,6 +17,7 @@ from src.depends.sql import SQLDepends
 from src.models.file import FileModel, FileORM
 from src.models.metadata import MetadataORM
 from src.service.slow_task import FileService
+from src.sql.file_crad import FileCRAD
 from src.sql.sql import escape_path
 from src.util.file import FileResolver
 from src.util.rfc1123 import RFC1123
@@ -82,7 +83,7 @@ class FileServiceWebDav(FileService):
         ]
 
     async def get_file(self, href: Path, path: Path) -> Union[dict, BaseModel, None]:
-        if await os.path.isdir(path):
+        if await FileCRAD(self.session).isdir(path):
             file_state = (
                 select(FileORM, MetadataORM)
                 .join(MetadataORM, MetadataORM.id == FileORM.metadata_id)
@@ -113,7 +114,7 @@ class FileServiceWebDav(FileService):
                     },
                 },
             }
-        elif await os.path.isfile(path):
+        elif await FileCRAD(self.session).isfile(path):
             file_state = (
                 select(FileORM, MetadataORM)
                 .join(MetadataORM, MetadataORM.id == FileORM.metadata_id)
@@ -149,7 +150,7 @@ class FileServiceWebDav(FileService):
 
     @FileService.error_decorator
     async def check(self, file_path: Path) -> Union[Response, BaseModel]:
-        if await os.path.exists(file_path):
+        if await FileCRAD(self.session).exists(file_path):
             return self.success_response()
         else:
             return self.not_found_response()
