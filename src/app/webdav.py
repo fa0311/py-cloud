@@ -164,6 +164,7 @@ class FileServiceWebDav(FileService):
     tags=["webdav"],
     methods=["HEAD", "OPTIONS", "PROPPATCH"],
     description="Check file in webdav",
+    include_in_schema=False,
 )
 async def check(
     file_path: str,
@@ -180,6 +181,7 @@ async def check(
     tags=["webdav"],
     methods=["LOCK"],
     description="Lock file in webdav",
+    include_in_schema=False,
 )
 async def lock(
     file_path: str,
@@ -196,6 +198,7 @@ async def lock(
     tags=["webdav"],
     methods=["UNLOCK"],
     description="Unlock file in webdav",
+    include_in_schema=False,
 )
 async def unlock(
     file_path: str,
@@ -212,6 +215,7 @@ async def unlock(
     tags=["webdav"],
     methods=["PROPFIND"],
     description="List files in webdav",
+    include_in_schema=False,
 )
 async def list(
     file_path: str,
@@ -228,6 +232,7 @@ async def list(
     tags=["webdav"],
     methods=["PUT"],
     description="Upload file to webdav",
+    include_in_schema=False,
 )
 async def upload(
     file_path: str,
@@ -245,6 +250,7 @@ async def upload(
     tags=["webdav"],
     methods=["GET"],
     description="Download file from webdav",
+    include_in_schema=False,
 )
 async def download(
     file_path: str,
@@ -261,6 +267,7 @@ async def download(
     tags=["webdav"],
     methods=["DELETE"],
     description="Delete file from webdav",
+    include_in_schema=False,
 )
 async def delete(
     file_path: str,
@@ -277,6 +284,7 @@ async def delete(
     tags=["webdav"],
     methods=["MKCOL"],
     description="Create directory in webdav",
+    include_in_schema=False,
 )
 async def mkdir(
     file_path: str,
@@ -293,6 +301,7 @@ async def mkdir(
     tags=["webdav"],
     methods=["MOVE"],
     description="Move file in webdav",
+    include_in_schema=False,
 )
 async def move(
     file_path: str,
@@ -311,6 +320,7 @@ async def move(
     tags=["webdav"],
     methods=["COPY"],
     description="Copy file in webdav",
+    include_in_schema=False,
 )
 async def copy(
     file_path: str,
