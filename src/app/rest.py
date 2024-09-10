@@ -9,11 +9,12 @@ from sqlalchemy.ext.asyncio import (
     AsyncSession,
 )
 
-from models.response import DirectoryResponseModel, FileResponseModel
 from src.depends.logging import LoggingDepends
 from src.depends.sql import SQLDepends
-from src.service.slow_task import FileService
+from src.models.response import DirectoryResponseModel, FileResponseModel
+from src.service.api import FileService
 from src.sql.file_crad import FileCRAD
+from src.util.file import FileResolver
 from src.util.stream import Stream
 
 router = APIRouter()
@@ -88,7 +89,7 @@ async def get_list(
     logger: Annotated[Logger, Depends(LoggingDepends.depends)],
     session: Annotated[AsyncSession, Depends(SQLDepends.depends)],
 ):
-    path = Path(file_path)
+    path = FileResolver.base_path.joinpath(file_path)
     return await FileServiceRest(request, logger, session).list(path)
 
 
@@ -105,7 +106,7 @@ async def post_upload(
     logger: Annotated[Logger, Depends(LoggingDepends.depends)],
     session: Annotated[AsyncSession, Depends(SQLDepends.depends)],
 ):
-    path = Path(file_path)
+    path = FileResolver.base_path.joinpath(file_path)
     stream = Stream.read(file, 0, None)
     return await FileServiceRest(request, logger, session).upload(path, stream)
 
@@ -122,7 +123,7 @@ async def get_download(
     logger: Annotated[Logger, Depends(LoggingDepends.depends)],
     session: Annotated[AsyncSession, Depends(SQLDepends.depends)],
 ):
-    path = Path(file_path)
+    path = FileResolver.base_path.joinpath(file_path)
     return await FileServiceRest(request, logger, session).download(path)
 
 
@@ -138,7 +139,7 @@ async def delete_delete(
     logger: Annotated[Logger, Depends(LoggingDepends.depends)],
     session: Annotated[AsyncSession, Depends(SQLDepends.depends)],
 ):
-    path = Path(file_path)
+    path = FileResolver.base_path.joinpath(file_path)
     return await FileServiceRest(request, logger, session).delete(path)
 
 
@@ -154,7 +155,7 @@ async def post_mkdir(
     logger: Annotated[Logger, Depends(LoggingDepends.depends)],
     session: Annotated[AsyncSession, Depends(SQLDepends.depends)],
 ):
-    path = Path(file_path)
+    path = FileResolver.base_path.joinpath(file_path)
     return await FileServiceRest(request, logger, session).mkdir(path)
 
 
@@ -171,8 +172,8 @@ async def post_move(
     logger: Annotated[Logger, Depends(LoggingDepends.depends)],
     session: Annotated[AsyncSession, Depends(SQLDepends.depends)],
 ):
-    path = Path(file_path)
-    rename = Path(rename_path)
+    path = FileResolver.base_path.joinpath(file_path)
+    rename = FileResolver.base_path.joinpath(rename_path)
     return await FileServiceRest(request, logger, session).move(path, rename)
 
 
@@ -189,6 +190,6 @@ async def post_copy(
     logger: Annotated[Logger, Depends(LoggingDepends.depends)],
     session: Annotated[AsyncSession, Depends(SQLDepends.depends)],
 ):
-    path = Path(file_path)
-    copy = Path(copy_path)
+    path = FileResolver.base_path.joinpath(file_path)
+    copy = FileResolver.base_path.joinpath(copy_path)
     return await FileServiceRest(request, logger, session).copy(path, copy)

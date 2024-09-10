@@ -18,12 +18,12 @@ class FileResolver:
         FileResolver.trashbin_path = FileResolver.base_path.joinpath(".trashbin")
 
     @staticmethod
-    async def get_file(file_path: Union[str, Path]) -> Path:
+    def get_file(file_path: Union[str, Path]) -> Path:
         file = FileResolver.base_path.joinpath(file_path)
         return file
 
     @staticmethod
-    async def get_metadata_from_uuid(uuid: uuid.UUID) -> Path:
+    def get_metadata_from_uuid(uuid: uuid.UUID) -> Path:
         temp = FileResolver.metadata_path.joinpath(str(uuid))
         return temp
 
@@ -58,5 +58,5 @@ class FileResolver:
     @staticmethod
     async def from_url(baseurl: Path, url: str) -> Path:
         url_path = Path(unquote(urlparse(url).path))
-        rename = await FileResolver.get_file(url_path.relative_to(baseurl))
+        rename = FileResolver.get_file(url_path.relative_to(baseurl))
         return rename

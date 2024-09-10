@@ -15,7 +15,7 @@ from src.depends.logging import LoggingDepends
 from src.depends.sql import SQLDepends
 from src.models.file import FileModel, FileORM
 from src.models.response import DirectoryResponseModel, FileResponseModel
-from src.service.slow_task import FileService
+from src.service.api import FileService
 from src.sql.file_crad import FileCRAD
 from src.util.file import FileResolver
 from src.util.rfc1123 import RFC1123
@@ -171,7 +171,7 @@ async def check(
     logger: Logger = Depends(LoggingDepends.depends),
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
-    path = await FileResolver.get_file(file_path)
+    path = FileResolver.get_file(file_path)
     return await FileServiceWebDav(request, logger, session).check(path)
 
 
@@ -187,7 +187,7 @@ async def lock(
     logger: Logger = Depends(LoggingDepends.depends),
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
-    path = await FileResolver.get_file(file_path)
+    path = FileResolver.get_file(file_path)
     return await FileServiceWebDav(request, logger, session).lock(path)
 
 
@@ -203,7 +203,7 @@ async def unlock(
     logger: Logger = Depends(LoggingDepends.depends),
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
-    path = await FileResolver.get_file(file_path)
+    path = FileResolver.get_file(file_path)
     return await FileServiceWebDav(request, logger, session).unlock(path)
 
 
@@ -219,7 +219,7 @@ async def list(
     logger: Logger = Depends(LoggingDepends.depends),
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
-    path = await FileResolver.get_file(file_path)
+    path = FileResolver.get_file(file_path)
     return await FileServiceWebDav(request, logger, session).list(path)
 
 
@@ -235,7 +235,7 @@ async def upload(
     logger: Logger = Depends(LoggingDepends.depends),
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
-    path = await FileResolver.get_file(file_path)
+    path = FileResolver.get_file(file_path)
     stream = request.stream()
     return await FileServiceWebDav(request, logger, session).upload(path, stream)
 
@@ -252,7 +252,7 @@ async def download(
     logger: Logger = Depends(LoggingDepends.depends),
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
-    path = await FileResolver.get_file(file_path)
+    path = FileResolver.get_file(file_path)
     return await FileServiceWebDav(request, logger, session).download(path)
 
 
@@ -268,7 +268,7 @@ async def delete(
     logger: Logger = Depends(LoggingDepends.depends),
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
-    path = await FileResolver.get_file(file_path)
+    path = FileResolver.get_file(file_path)
     return await FileServiceWebDav(request, logger, session).delete(path)
 
 
@@ -300,7 +300,7 @@ async def move(
     logger: Logger = Depends(LoggingDepends.depends),
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
-    path = await FileResolver.get_file(file_path)
+    path = FileResolver.get_file(file_path)
     baseurl = FileResolver.get_base_url(Path(request.url.path), Path(file_path))
     rename = await FileResolver.from_url(baseurl, request.headers["destination"])
     return await FileServiceWebDav(request, logger, session).move(path, rename)
@@ -318,7 +318,7 @@ async def copy(
     logger: Logger = Depends(LoggingDepends.depends),
     session: AsyncSession = Depends(SQLDepends.depends),
 ):
-    path = await FileResolver.get_file(file_path)
+    path = FileResolver.get_file(file_path)
     baseurl = FileResolver.get_base_url(Path(request.url.path), Path(file_path))
     copy = await FileResolver.from_url(baseurl, request.headers["destination"])
 
