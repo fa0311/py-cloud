@@ -115,7 +115,7 @@ class FileService:
             return self.conflict_response()
         else:
             id = uuid.uuid4()
-            metadata = await FileResolver.get_metadata_from_uuid(id)
+            metadata = FileResolver.get_metadata_from_uuid(id)
             await os.makedirs(metadata)
             await FileCRAD(self.session).mkdir(metadata)
             bin = metadata.joinpath(f"bin{file_path.suffix}")

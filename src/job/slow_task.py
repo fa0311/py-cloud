@@ -68,7 +68,7 @@ async def video_convert(session: AsyncSession):
     while res_orm := (await session.execute(task_state)).first():
         (task_orm, metadata_orm) = res_orm.tuple()
         metadata = MetadataModel.model_validate_orm(metadata_orm)
-        filename = await FileResolver.get_metadata_from_uuid(metadata.id)
+        filename = FileResolver.get_metadata_from_uuid(metadata.id)
 
         ffmpeg = FFmpegVideo(
             input_file=filename.joinpath(f"bin{metadata.suffix}"),
@@ -123,7 +123,7 @@ async def classification(
         (task_orm, metadata_orm) = task_orm.tuple()
         slow_task = SlowTaskModel.model_validate_orm(task_orm)
         metadata = MetadataModel.model_validate_orm(metadata_orm)
-        filename = await FileResolver.get_metadata_from_uuid(metadata.id)
+        filename = FileResolver.get_metadata_from_uuid(metadata.id)
         bin = filename.joinpath(f"bin{metadata.suffix}")
         if slow_task.type == type_1:
             tags = await wrap(model.classify)(bin)

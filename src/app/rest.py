@@ -82,6 +82,7 @@ def stream(file: UploadFile):
     operation_id="get_list",
     tags=["list"],
     description="list",
+    responses={200: {"model": FileResponse}},
 )
 async def get_list(
     file_path: str,
@@ -98,6 +99,7 @@ async def get_list(
     operation_id="post_upload",
     tags=["upload"],
     description="upload",
+    responses={200: {"model": ResponseStatus}},
 )
 async def post_upload(
     file_path: str,
@@ -116,6 +118,7 @@ async def post_upload(
     operation_id="get_download",
     tags=["download"],
     description="download",
+    responses={200: {"model": bytes}},
 )
 async def get_download(
     file_path: str,
@@ -132,6 +135,7 @@ async def get_download(
     operation_id="delete_delete",
     tags=["delete"],
     description="delete",
+    responses={200: {"model": ResponseStatus}},
 )
 async def delete_delete(
     file_path: str,
@@ -148,6 +152,7 @@ async def delete_delete(
     operation_id="post_mkdir",
     tags=["mkdir"],
     description="mkdir",
+    responses={200: {"model": ResponseStatus}},
 )
 async def post_mkdir(
     file_path: str,
@@ -164,6 +169,7 @@ async def post_mkdir(
     operation_id="post_move",
     tags=["move"],
     description="move",
+    responses={200: {"model": ResponseStatus}},
 )
 async def post_move(
     file_path: str,
@@ -182,6 +188,7 @@ async def post_move(
     operation_id="post_copy",
     tags=["copy"],
     description="copy",
+    responses={200: {"model": ResponseStatus}},
 )
 async def post_copy(
     file_path: str,

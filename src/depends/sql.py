@@ -1,4 +1,4 @@
-import aiofiles.os as os
+from aiofiles import os
 from sqlalchemy.exc import DatabaseError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,

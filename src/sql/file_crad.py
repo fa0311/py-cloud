@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import aiofiles.os as os
+from aiofiles import os
 from sqlalchemy import and_, func, or_
 from sqlalchemy.ext.asyncio import (
     AsyncSession,

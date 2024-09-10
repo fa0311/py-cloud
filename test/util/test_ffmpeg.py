@@ -1,7 +1,7 @@
 from pathlib import Path
 
-import aiofiles.os as os
 import pytest
+from aiofiles import os
 
 from src.util.ffmpeg import FFmpegVideo, FFmpegWrapper
 

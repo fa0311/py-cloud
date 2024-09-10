@@ -1,9 +1,8 @@
 import logging
-import os
 from logging import Logger, handlers
 from pathlib import Path
 
-import aiofiles.os as os
+from aiofiles import os
 from coloredlogs import ColoredFormatter
 
 from src.models.environ import Environ
