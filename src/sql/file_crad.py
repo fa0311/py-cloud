@@ -65,7 +65,11 @@ class FileCRAD:
         data = (await self.session.execute(file_state)).one()
 
         file_state = (
-            select(func.max(FileORM.created_at), func.sum(MetadataORM.size))
+            select(
+                func.max(FileORM.created_at),
+                func.sum(MetadataORM.size),
+                func.count(FileORM.id),
+            )
             .join(MetadataORM, MetadataORM.id == FileORM.metadata_id)
             .where(FileORM.filename.like(f"{escape_path(file)}%"))
         )
@@ -74,6 +78,7 @@ class FileCRAD:
         return DirectoryResponseModel(
             last_update=metadata[0],
             size=metadata[1],
+            count=metadata[2],
             file=FileModel.model_validate_orm(data.tuple()[0]),
         )
 

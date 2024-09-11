@@ -5,7 +5,7 @@ from typing import AsyncGenerator, Union
 
 from aiofiles import open, os
 from fastapi import Request, Response
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -155,18 +155,19 @@ class FileService:
                 file = await FileCRAD(self.session).getfile(file_path)
                 start, end = self.request.headers["Range"].split("=")[1].split("-")
                 start = int(start) if start else 0
-                end = int(end) if end else file.metadata.size - 1
+                e = min(file.metadata.size, start + FileResponse.chunk_size * 2)
+                end = int(end) if end else e
             else:
                 file = await FileCRAD(self.session).getfile(file_path)
                 start = 0
-                end = file.metadata.size - 1
+                end = min(file.metadata.size, start + FileResponse.chunk_size * 2)
 
             return StreamingResponse(
                 Stream.read_file(file_path, start, end),
                 headers={
-                    "Content-Range": f"bytes {start}-{end}/{file.metadata.size}",
+                    "Content-Range": f"bytes {start}-{end }/{file.metadata.size}",
                     "Accept-Ranges": "bytes",
-                    "Content-Length": str(end - start + 1),
+                    "Content-Length": str(end - start),
                     "Content-Type": file.metadata.internet_media_type,
                 },
             )

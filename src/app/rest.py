@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import (
 
 from src.depends.logging import LoggingDepends
 from src.depends.sql import SQLDepends
+from src.models.file import FileModel
 from src.models.response import DirectoryResponseModel, FileResponseModel
 from src.service.api import FileService
 from src.sql.file_crad import FileCRAD
@@ -23,6 +24,10 @@ router = APIRouter()
 class FileResponse(BaseModel):
     dir: DirectoryResponseModel
     child: list[Union[DirectoryResponseModel, FileResponseModel]]
+
+
+class FileResponseChild(BaseModel):
+    child: Union[DirectoryResponseModel, FileResponseModel]
 
 
 class ResponseStatus(BaseModel):
@@ -52,15 +57,21 @@ class FileServiceRest(FileService):
         async with open(path, "rb") as file:
             return await file.read()
 
+    def replace(self, file: FileModel):
+        file.filename = file.filename.relative_to(FileResolver.base_path)
+        file.pearent = file.pearent.relative_to(FileResolver.base_path)
+
     async def get_dir(self, file_path: Path):
         dir = await FileCRAD(self.session).getdir(file_path)
         res = []
         for file in await FileCRAD(self.session).listdir(file_path):
             if file.directory:
                 data = await FileCRAD(self.session).getdir(file.filename)
+                self.replace(data.file)
                 res.append(data)
             else:
                 data = await FileCRAD(self.session).getfile(file.filename)
+                self.replace(data.file)
                 res.append(data)
         model = FileResponse(dir=dir, child=res)
         return self.data_response(model)

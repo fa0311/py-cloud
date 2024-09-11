@@ -11,6 +11,7 @@ class DirectoryResponseModel(ModelBase):
     last_update: datetime = Field()
     size: int = Field()
     file: FileModel = Field()
+    count: int = Field()
 
 
 class FileResponseModel(ModelBase):
